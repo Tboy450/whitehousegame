@@ -1,39 +1,82 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trump Elon Rocket - Arcade Game</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f1e9">
+  <meta name="description" content="Two riders. One rocket. An endless, one-button arcade run inspired by the classic offline dinosaur game.">
+  <title>Trump & Elon · Rocket Run</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="gameContainer">
-        <div id="hud">
-            <div id="score">SCORE: 0</div>
-            <div id="highScore">HIGH: 0</div>
-            <div id="level">LEVEL: 1</div>
+  <main class="arcade">
+    <header class="masthead">
+      <a class="wordmark" href="./" aria-label="Rocket Run home"><span class="brand-mark" aria-hidden="true">R<span>↗</span></span><span>ROCKET RUN<small>TRUMP & ELON</small></span></a>
+      <div class="header-right"><span class="edition">THE ONE-BUTTON SPACE RACE</span><span class="edition-number">ARCADE / 01</span></div>
+    </header>
+    <section id="gameContainer" class="game-shell" aria-label="Rocket Run arcade game">
+      <div class="game-topbar">
+        <span class="flight-status"><span class="status-dot"></span><span id="flightStatus">READY FOR TAKEOFF</span></span>
+        <div class="toolbar">
+          <button id="soundButton" class="tool-button" type="button" aria-label="Turn sound on" aria-pressed="false">SOUND <span id="soundValue">OFF</span></button>
+          <button id="pauseButton" class="tool-button" type="button" aria-label="Pause game" disabled>PAUSE <span aria-hidden="true">Ⅱ</span></button>
         </div>
-        <canvas id="gameCanvas" width="400" height="600"></canvas>
-        <div id="gameOver" class="hidden">
-            <div class="gameOverContent">
-                <h1>GAME OVER</h1>
-                <p>FINAL SCORE: <span id="finalScore">0</span></p>
-                <p>LEVEL REACHED: <span id="levelReached">1</span></p>
-                <button onclick="location.reload()">PLAY AGAIN</button>
-            </div>
+      </div>
+      <div id="stage" class="stage" tabindex="0" role="region" aria-label="Game field. Space or up arrow to jump; hold for a higher jump. P to pause.">
+        <canvas id="gameCanvas" width="1200" height="570" aria-label="Both riders fly on a horizontal rocket, jumping over a scrolling desert." role="img"></canvas>
+        <div id="hud" class="hud" aria-label="Run statistics">
+          <div class="hud-item best"><span>PERSONAL BEST</span><strong id="highScore">00000</strong></div>
+          <div class="hud-item current"><span>SCORE</span><strong id="score">00000</strong></div>
         </div>
-        <div id="startScreen" class="startScreen">
-            <div class="startContent">
-                <h1>🚀 TRUMP ELON ROCKET 🚀</h1>
-                <p>Jump over obstacles with the dynamic duo!</p>
-                <div class="controls">
-                    <p>CONTROLS: SPACEBAR or UP ARROW to jump</p>
-                    <p>AVOID obstacles and survive as long as you can!</p>
-                </div>
-                <button onclick="startGame()">START GAME</button>
-            </div>
+        <div id="startScreen" class="start-screen">
+          <div class="eyebrow"><span class="tiny-cross" aria-hidden="true">+</span> TWO RIDERS. ONE ROCKET.</div>
+          <h1>ROCKET<br><span>RUN.</span></h1>
+          <p class="menu-description">One small jump.<br>One very unlikely crew.</p>
+          <button id="startButton" class="primary-button" type="button" disabled>PREPARING CREW…</button>
+          <p class="start-hint">PRESS <kbd>SPACE</kbd> TO LAUNCH</p>
+          <p id="assetError" class="asset-error" hidden>The crew artwork couldn’t load. Refresh to try again.</p>
         </div>
-    </div>
-    <script src="game.js"></script>
+        <div id="crewLabel" class="crew-label"><span>TRUMP + ELON</span><small>CREW: 02 &nbsp; / &nbsp; ROCKET: 01</small></div>
+        <fieldset id="scenePicker" class="scene-picker">
+          <legend>PICK YOUR VERY REAL DESTINATION</legend>
+          <button id="moonButton" type="button" aria-pressed="true"><span>01</span> THE MOON*</button>
+          <button id="marsButton" type="button" aria-pressed="false"><span>02</span> MARS*</button>
+          <button id="areaButton" type="button" aria-pressed="false"><span>03</span> AREA 51</button>
+          <button id="lockheedButton" type="button" aria-pressed="false" aria-label="Lockheed Martin, Skunk Works"><span>04</span> LOCKHEED</button>
+          <button id="spacexButton" type="button" aria-pressed="false" aria-label="SpaceX Starbase"><span>05</span> SPACEX</button>
+        </fieldset>
+        <div id="runHint" class="run-hint" hidden><kbd>SPACE</kbd> or tap to jump · hold to go higher</div>
+        <div id="milestone" class="milestone" aria-live="polite"></div>
+        <div id="pauseScreen" class="overlay" hidden>
+          <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+            <span class="eyebrow">TAKE A BREATHER</span><h2 id="pauseTitle">FLIGHT PAUSED.</h2>
+            <p>Your crew will wait right here.</p>
+            <button id="resumeButton" class="primary-button" type="button">RESUME FLIGHT <span aria-hidden="true">→</span></button>
+            <button id="pauseMenuButton" class="text-button" type="button">BACK TO MENU</button>
+          </section>
+        </div>
+        <div id="gameOver" class="overlay" hidden>
+          <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="gameOverTitle">
+            <span id="resultEyebrow" class="eyebrow">A SLIGHT DETOUR</span><h2 id="gameOverTitle">FLIGHT OVER.</h2>
+            <p>Dust yourselves off. The next run is yours.</p>
+            <div class="result-stats"><div><span>YOUR SCORE</span><strong id="finalScore">0</strong></div><div><span>BEST RUN</span><strong id="finalBest">0</strong></div><div><span>LEVEL</span><strong id="levelReached">1</strong></div></div>
+            <button id="retryButton" class="primary-button" type="button">FLY AGAIN <span aria-hidden="true">↗</span></button>
+            <button id="menuButton" class="text-button" type="button">BACK TO MENU</button>
+          </section>
+        </div>
+        <div class="terrain-label"><span id="sectorLabel">THE MOON* <small>*a.k.a. the Nevada desert.</small></span><span id="speedLabel">BOUND FOR SOMEWHERE ↗</span></div>
+      </div>
+      <div class="game-bottom-bar"><span><i class="live-dot" aria-hidden="true"></i> ENDLESS RUNNER</span><span id="level">LEVEL 01</span><span>NO CHECKPOINTS. JUST ONE MORE TRY.</span></div>
+    </section>
+    <footer class="controls-footer">
+      <div class="control-group"><span class="control-number">01</span><p><strong>Jump the obstacles</strong><span><kbd>SPACE</kbd> / <kbd>↑</kbd> / TAP</span></p></div>
+      <div class="control-group"><span class="control-number">02</span><p><strong>Get a little more airtime</strong><span>HOLD TO JUMP HIGHER</span></p></div>
+      <div class="control-group"><span class="control-number">03</span><p><strong>Beat your last run</strong><span>YOUR BEST SAVES AUTOMATICALLY</span></p></div>
+    </footer>
+    <div class="page-footnote"><span>INSPIRED BY THE CLASSIC OFFLINE RUNNER.</span><span>A LITTLE LESS PREHISTORIC. A LOT MORE ROCKET.</span></div>
+  </main>
+  <script src="game-core.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>

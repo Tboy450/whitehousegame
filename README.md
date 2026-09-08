@@ -1,63 +1,52 @@
-# 🚀 Trump Elon Rocket Game 🚀
+# Rocket Run — Trump & Elon
 
-A retro arcade-style game inspired by the Chrome dinosaur game, but with Trump and Elon on a rocket jumping over obstacles in space!
+A horizontal, one-button desert runner inspired by the Chrome offline dinosaur game. Both riders stay seated on the same right-facing rocket throughout the run.
 
-## Features
+## Play
 
-- **Arcade-style pixel graphics** - Nostalgic retro vibes with modern gameplay
-- **Dynamic duo** - Character switches between Trump and Elon during gameplay
-- **Progressive difficulty** - Speed increases and spawn rate changes as you progress
-- **Multiple obstacle types** - Meteors, aliens, and space debris
-- **Particle effects** - Jump trails and score popups for that arcade feel
-- **Persistent high scores** - Your best score is saved in localStorage
-- **Responsive controls** - SPACEBAR or UP ARROW to jump, ARROW KEYS to move
+Open `index.html` directly, or run `npm run dev` and visit the printed local address. The game and its font use local assets and have no runtime dependencies.
 
-## How to Play
+- **Space / Up / W / tap:** jump.
+- **Hold:** jump higher. Release for a shorter jump.
+- **P / Escape:** pause or resume.
+- Losing window focus automatically pauses the game.
+- Use **Fly Again** after a crash. Personal best is stored on the current device.
+- Sound is optional and starts muted.
 
-1. Open `index.html` in your browser
-2. Click "START GAME" on the title screen
-3. Press SPACEBAR or UP ARROW to jump over obstacles
-4. Use LEFT/RIGHT ARROW KEYS to move side to side
-5. Survive as long as possible to increase your score
-6. The game gets harder as your score increases (levels go up to 10)
+## Five selectable sectors
 
-## Game Mechanics
+| Sector | In-game location caption | Scenery |
+| --- | --- | --- |
+| The Moon* | *a.k.a. the Nevada desert. | Pale desert, low mesas |
+| Mars* | *Arizona, with the saturation turned up. | Red sand, layered buttes, two moons |
+| Area 51 | Just a weather balloon. Keep moving. | Night sky, hangars, radar, a floating saucer |
+| Lockheed Martin / Skunk Works | Even the cacti signed NDAs. | Airfield, hangars, control tower |
+| SpaceX / Starbase | Some assembly required. Rapid disassembly included. | Coastal desert, assembly buildings, tower and tanks |
 
-- **Scoring**: +10 points for each obstacle survived
-- **Levels**: Difficulty increases every 500 points
-- **Speed**: Base speed is 5 pixels/frame, increases with level
-- **Spawn Rate**: More obstacles appear as difficulty increases
-- **Physics**: Gravity-based jumping with increasing jump power at higher levels
+Choose a starting sector in the menu. Scenery advances every two levels, and wraps through all five. These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims.
 
-## File Structure
+## Development
 
-```
-├── index.html       # Main game HTML
-├── style.css        # Arcade-style CSS with retro neon theme
-├── game.js          # Game logic, physics, and rendering
-└── README.md        # This file
+Requires Node 18 or newer for development commands; no package installation is needed.
+
+```sh
+npm run dev
+npm test
+npm run build
 ```
 
-## Controls
+The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
-- **SPACEBAR** or **UP ARROW** - Jump
-- **LEFT ARROW** - Move left
-- **RIGHT ARROW** - Move right
+- `game-core.js`: fixed-step physics, collision, scoring, spacing, progression.
+- `game.js`: canvas scenery, keyboard/touch input, audio, menus, local best.
+- `tests/`: deterministic simulation tests and controller tests using a minimal DOM adapter.
+- `assets/rocket-duo.png`: generated player artwork; provenance and prompt in `assets/ARTWORK.md`.
+- `SUBMISSION.md`: official contact route, research links, and an unsent submission inquiry.
 
-## Browser Compatibility
+## Validation
 
-Works in all modern browsers with HTML5 Canvas support:
-- Chrome/Chromium
-- Firefox
-- Safari
-- Edge
+Automated checks cover obstacle clearability at minimum/maximum speed, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage failures, keyboard/touch handlers, all five menu choices, and sector progression. Controller tests are not real-browser visual or accessibility testing.
 
-## Tips to Get High Score
+## Credits and status
 
-- Time your jumps carefully
-- Use left/right movement to avoid obstacles in their path
-- Watch for the pattern of obstacle spawning
-- Stay near the center for more reaction time
-- The game gets significantly harder after level 5
-
-Enjoy the game!
+Independent arcade project. Not affiliated with or endorsed by Google, the White House, SpaceX, or Lockheed Martin. Barlow Condensed is bundled under the SIL Open Font License; see `assets/fonts/OFL.txt`.
