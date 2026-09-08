@@ -11,6 +11,7 @@
   let scorePopups = [];
   let gameOverAt = 0, width = 1200, height = 570, dpr = 1;
   let selectedScene = 0, shownScene = -1;
+  let shownHUD = '';
   const { Art, SCENES: scenes } = window.RocketArtwork;
   const art = new Art(ctx);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
@@ -24,14 +25,17 @@
 
   const crew = new Image();
   crew.onload = () => {
-    ready = true; $('startButton').disabled = false;
-    $('startButton').innerHTML = 'LET’S FLY <span aria-hidden="true">↗</span>';
+    ready = true; $('assetError').hidden = true;
   };
-  crew.onerror = () => { $('assetError').hidden = false; $('startButton').textContent = 'CREW UNAVAILABLE'; };
+  crew.onerror = () => { $('assetError').hidden = false; };
+  crew.fetchPriority = 'high';
+  crew.decoding = 'async';
   crew.src = 'assets/rocket-duo.png';
+  $('retryArtwork').addEventListener('click', () => { crew.src = 'assets/rocket-duo.png?retry=' + Date.now(); });
 
   function resize() {
     const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     width = rect.width; height = rect.height; dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
   }
@@ -69,6 +73,10 @@
     $('startScreen').inert = state !== 'menu'; $('pauseScreen').inert = state !== 'paused'; $('gameOver').inert = state !== 'over';
   }
   function updateHUD() {
+    // Avoid rewriting score, progress and accessibility attributes on every paint.
+    const hudKey = [state,game.score,best,game.level,selectedScene,game.sectorIndex,Math.round(game.speed)].join(':');
+    if (hudKey === shownHUD) return;
+    shownHUD = hudKey;
     $('score').textContent = pad(game.score); $('highScore').textContent = pad(best);
     $('level').textContent = 'LEVEL ' + String(game.level).padStart(2, '0');
     const nextScene = state === 'menu' ? selectedScene : currentSceneIndex();
@@ -88,7 +96,6 @@
     $('routeProgress').setAttribute('aria-valuetext', (600 - routePoint) + ' points to ' + destination);
   }
   function start() {
-    if (!ready) return;
     game.start(selectedScene); activeJumpInputs.clear(); particles = []; scorePopups = []; particleClock = 0;
     accumulator = 0; lastTime = null; sceneDistance = 0; milestoneUntil = 0;
     $('milestone').textContent = ''; setState('playing'); updateHUD(); tone('start'); stage.focus({preventScroll:true});
@@ -186,7 +193,7 @@
       width:viewWidth,height:viewHeight,ground,distance:sceneDistance,time:sceneTime,reduced:reducedMotion});
   }
   function drawCrew(x,bottom,w,bob=0) {
-    if(!ready)return;
+    if(!ready){ art.reserveCrew(x,bottom+bob,w); return; }
     const h=w*crew.naturalHeight/crew.naturalWidth;
     ctx.imageSmoothingEnabled=false;
     ctx.drawImage(crew,Math.round(x),Math.round(bottom-h+bob),w,h);
@@ -198,10 +205,10 @@
       ctx.save();ctx.scale(scale,scale);
       const ground=viewHeight-80; background(1200,viewHeight,ground);
       ctx.restore();
-      const mobile=width<590 && height>400;
-      const rocketWidth=mobile?width*.47:width*.39;
-      const rocketX=mobile?width*.49:width*.535;
-      const rocketBottom=mobile?height-165:height*.66;
+      const mobile=width<620 && height>400;
+      const rocketWidth=mobile?width*.48:width*.39;
+      const rocketX=mobile?width*.51:width*.535;
+      const rocketBottom=mobile?230:height*.61;
       const bob=reducedMotion?0:Math.sin(sceneTime*2.5)*3;
       ctx.fillStyle='#ced1c0';ctx.globalAlpha=.5;ctx.beginPath();ctx.ellipse(rocketX+rocketWidth*.58,height-80*scale-6,rocketWidth*.30,5,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
       drawCrew(rocketX,rocketBottom,rocketWidth,bob);
@@ -210,7 +217,8 @@
       for(let i=0;i<3;i++){const x=rocketX-15-(i%2)*18;const y=rocketBottom-rocketWidth*.19-i*15;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-20-i*8,y);ctx.stroke();}
       return;
     }
-    const viewWidth=width<620?800:1200, scale=width/viewWidth;
+    // Short landscape viewports must still show the full jump arc and both riders.
+    const viewWidth=Math.max(width<620?800:1200,width*390/height), scale=width/viewWidth;
     const viewHeight=height/scale, ground=viewHeight-85;
     ctx.save();ctx.scale(scale,scale);
     background(viewWidth,viewHeight,ground);

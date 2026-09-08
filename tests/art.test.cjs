@@ -31,12 +31,44 @@ test('every engine-spawned obstacle has valid, distinct foreground artwork',()=>
   assert.equal(signatures.size,20);
 });
 
-test('all maps render their own background references across a parallax wrap',()=>{
+test('all maps retain their references while scenery changes throughout the route',()=>{
   assert.deepEqual(SCENES.map(scene=>scene.id),SECTOR_IDS);
   const references=['TAKE 1969','RED FILTER: ON','PARKING ONLY','SKUNK WORKS','STARFACTORY'];
-  for(let index=0;index<5;index++)for(const width of [800,1200])for(const distance of [0,7640,7690]){
-    const ctx=context(),art=new Art(ctx);
-    art.background({index,width,height:570,ground:480,distance,time:30,reduced:false});
-    assert.equal(ctx.stack,0);assert.ok(ctx.labels.includes(references[index]));
+  for(let index=0;index<5;index++)for(const width of [800,1200]){
+    const labels=new Set();
+    for(const distance of [0,2000,4000,6000,7640,7690,10000,16000]){
+      const ctx=context(),art=new Art(ctx);
+      art.background({index,width,height:570,ground:480,distance,time:30,reduced:false});
+      assert.equal(ctx.stack,0);ctx.labels.forEach(label=>labels.add(label));
+    }
+    assert.ok(labels.has(references[index]));
   }
+});
+
+test('scenery has stable positions, varied spacing and bases inside the rear ground plane',()=>{
+  function sample(index,distance){
+    const ctx=context(),art=new Art(ctx),props=[],originalTranslate=ctx.translate;
+    let x=0,y=0,scale=1;
+    ctx.translate=(px,py)=>{x=px;y=py;originalTranslate(px,py);};
+    ctx.scale=(sx)=>{scale=sx;};
+    art.landmark=(id,variant)=>props.push({id,variant,x,y,scale});
+    art.landmarks(SCENES[index].id,2400,480,distance,SCENES[index],5,true);
+    return props;
+  }
+  for(let index=0;index<5;index++){
+    const a=sample(index,0),b=sample(index,40);
+    assert.deepEqual(a,sample(index,0));
+    assert.ok(new Set(a.map(p=>p.scale)).size>3);
+    assert.ok(new Set(a.slice(1).map((p,i)=>p.x-a[i].x)).size>3);
+    a.forEach((p,i)=>{
+      assert.ok(p.y>=480-36&&p.y<=480-7,'prop base is inside the continuous ground apron');
+      assert.equal(p.variant,b[i].variant);assert.equal(p.scale,b[i].scale);
+      assert.ok(Math.abs((p.x-b[i].x)-40*.19)<=1,'parallax motion must not reseed a prop');
+    });
+  }
+});
+
+test('reserve crew draws valid geometry without any external image',()=>{
+  const ctx=context(),art=new Art(ctx);art.reserveCrew(154,464,200);
+  assert.equal(ctx.stack,0);assert.ok(ctx.commands.length>40);
 });

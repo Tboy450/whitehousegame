@@ -12,6 +12,8 @@ A horizontal, one-button desert runner inspired by the Chrome offline dinosaur g
 - Losing window focus automatically pauses the game.
 - Use **Fly Again** after a crash. Personal best is stored on the current device.
 - Sound is optional and starts muted.
+- Phone menus scroll normally, map buttons have larger tap targets, and landscape play fits around browser bars and screen cutouts. Rotate at any time; the run stays intact.
+- A built-in pixel crew lets you launch even while the full artwork is loading. If that download fails, use **Retry artwork** in the menu.
 
 ## Five selectable sectors
 
@@ -26,6 +28,14 @@ A horizontal, one-button desert runner inspired by the Chrome offline dinosaur g
 Choose a starting sector in the menu. Scenery advances every 600 points and keeps cycling through all five, including after difficulty caps at level 10. A progress indicator shows the next sector. Incoming obstacles keep their original appearance during a transition; new obstacles use the new sector's set. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
 
 These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims. All backgrounds and obstacles are original canvas pixel art, and none of the background props have collisions.
+
+Background props now sit on a continuous rear ground surface, with contact shadows. Small groups vary in scale, spacing and depth, with occasional open desert stretches. Their positions are deterministic, so scenery scrolls smoothly without rearranging between frames.
+
+## Public access
+
+The hosted copy is public. Each visitor's game runs independently in their browser; there is no shared player slot or game server session. The localhost address only works on the machine running the development server and should not be sent to other players.
+
+On September 8, 2026, four simultaneous anonymous HTTP clients loaded the public page and all six required resources successfully (28 successful responses, no sign-in redirects). Sites reported public access and no recent error logs. This checks asset delivery, not real-device behavior or a hosting capacity guarantee. Some responses took several seconds; artwork loading no longer blocks launch.
 
 ## Development
 
@@ -48,7 +58,7 @@ The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
 ## Validation
 
-Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, parallax wrapping, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage failures, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Controller tests are not real-browser visual or accessibility testing.
+Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, stable varied scenery, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage and image failures, independent visitors, phone-sized canvas changes, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

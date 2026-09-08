@@ -7,17 +7,19 @@ const core = require('../game-core.js');
 const artwork = require('../game-art.js');
 
 // Exercise real controller events with a minimal DOM/canvas adapter, without a browser dependency.
-function setup({ storageFails=false, imageFails=false, engine=core }={}) {
+function setup({ storageFails=false, imageFails=false, imagePending=false, engine=core, rect={width:1200,height:570} }={}) {
   const nodes = new Map(), frameQueue=[], windowEvents={}, documentEvents={}, store={};
   const ctx = new Proxy({}, {get:(object,key)=>object[key] ?? (()=>{}),set:(object,key,value)=>(object[key]=value,true)});
-  let time=0, imageDraws=0, activeElement;
+  let time=0, imageDraws=0, activeElement, image, onResize;
+  const transforms=[];
+  ctx.scale=(...args)=>{assert.ok(args.every(Number.isFinite));transforms.push(args);};
   ctx.drawImage=()=>imageDraws++;
   function element(id='',tag='DIV') {
     return {id,tagName:tag,hidden:false,disabled:false,inert:false,textContent:'',innerHTML:'',className:'',dataset:{},style:{},attributes:{},events:{},children:[],
       addEventListener(type,listener){(this.events[type] ||= []).push(listener);},
       setAttribute(key,value){this.attributes[key]=value;},
       replaceChildren(...children){this.children=children;},
-      getBoundingClientRect(){return {width:1200,height:570};},getContext(){return ctx;},
+      getBoundingClientRect(){return rect;},getContext(){return ctx;},
       focus(){activeElement=this;},setPointerCapture(){},
       closest(selector){return this.tagName==='BUTTON'&&selector.includes('button')?this:null;},
       querySelectorAll(){return id==='pauseScreen'?[nodes.get('resumeButton'),nodes.get('pauseMenuButton')]:[nodes.get('retryButton'),nodes.get('menuButton')];}
@@ -29,14 +31,14 @@ function setup({ storageFails=false, imageFails=false, engine=core }={}) {
     addEventListener:(type,listener)=>(documentEvents[type] ||= []).push(listener),hidden:false,get activeElement(){return activeElement;}};
   const window={RocketRunner:engine,RocketArtwork:artwork,devicePixelRatio:1,matchMedia:()=>({matches:false}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
   const sandbox={window,document,performance:{now:()=>time},localStorage:{getItem:key=>{if(storageFails)throw Error('blocked');return store[key];},setItem:(key,value)=>{if(storageFails)throw Error('blocked');store[key]=value;}},
-    Image:class{naturalWidth=1536;naturalHeight=1024;set src(_){imageFails?this.onerror():this.onload();}},ResizeObserver:class{constructor(callback){this.callback=callback;}observe(){this.callback();}},requestAnimationFrame:callback=>frameQueue.push(callback),Math,Set,Number,String,Object};
+    Image:class{constructor(){image=this;}naturalWidth=1536;naturalHeight=1024;set src(_){if(!imagePending)imageFails?this.onerror():this.onload();}},ResizeObserver:class{constructor(callback){onResize=callback;}observe(){onResize();}},requestAnimationFrame:callback=>frameQueue.push(callback),Math,Set,Number,String,Object,Date};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../game.js'),'utf8'),sandbox);
   function dispatch(target,type,props={}) {
     const event={target:target===window?nodes.get('stage'):target,preventDefault(){},repeat:false,...props};
     for(const listener of (target===window?windowEvents:target===document?documentEvents:target.events)[type]||[])listener(event);
   }
   function frames(count) {for(let i=0;i<count;i++){time+=1000/60;assert.equal(frameQueue.length,1,'exactly one animation loop');frameQueue.shift()(time);}}
-  return {nodes,window,document,dispatch,frames,store,frameQueue,get imageDraws(){return imageDraws;}};
+  return {nodes,window,document,dispatch,frames,store,frameQueue,transforms,resize(next){rect=next;onResize();},loadImage(){image.onload();},get imageDraws(){return imageDraws;}};
 }
 
 test('menu, both scenes, playing, pause, resume, and repeated restarts use one animation loop',()=>{
@@ -64,11 +66,46 @@ test('blocked storage cannot prevent loading, playing, results, or retry',()=>{
   app.dispatch(app.nodes.get('retryButton'),'click');app.frames(10);assert.equal(app.nodes.get('startScreen').hidden,true);
 });
 
-test('losing focus pauses and a missing sprite shows a recoverable error',()=>{
+test('losing focus pauses and a missing sprite still allows launch and retry',()=>{
   const app=setup();app.dispatch(app.nodes.get('startButton'),'click');app.frames(20);app.dispatch(app.window,'blur');
   assert.equal(app.nodes.get('pauseScreen').hidden,false);
   const unavailable=setup({imageFails:true});assert.equal(unavailable.nodes.get('assetError').hidden,false);
-  unavailable.dispatch(unavailable.nodes.get('startButton'),'click');assert.equal(unavailable.nodes.get('startScreen').hidden,false);
+  unavailable.dispatch(unavailable.nodes.get('startButton'),'click');assert.equal(unavailable.nodes.get('startScreen').hidden,true);
+  unavailable.frames(600);assert.equal(unavailable.nodes.get('gameOver').hidden,false);
+  unavailable.dispatch(unavailable.nodes.get('retryButton'),'click');unavailable.frames(5);
+  assert.equal(unavailable.nodes.get('gameOver').hidden,true);
+});
+
+test('a pending crew download cannot block play and can finish during a run',()=>{
+  const app=setup({imagePending:true}),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');app.frames(90);
+  assert.equal(get('startScreen').hidden,true);assert.ok(Number(get('score').textContent)>0);assert.equal(app.imageDraws,0);
+  app.loadImage();app.frames(5);assert.ok(app.imageDraws>0);assert.equal(get('gameOver').hidden,true);
+});
+
+test('separate visitors can choose maps, play, pause and save without affecting each other',()=>{
+  const clients=Array.from({length:4},()=>setup());
+  const choices=['moonButton','marsButton','areaButton','spacexButton'];
+  clients.forEach((app,i)=>{app.dispatch(app.nodes.get(choices[i]),'click');app.dispatch(app.nodes.get('startButton'),'click');app.frames(90);});
+  const scores=clients.map(app=>app.nodes.get('score').textContent);
+  clients[0].dispatch(clients[0].nodes.get('pauseButton'),'click');
+  clients.forEach(app=>app.frames(30));
+  assert.equal(clients[0].nodes.get('score').textContent,scores[0]);
+  clients.slice(1).forEach((app,i)=>assert.notEqual(app.nodes.get('score').textContent,scores[i+1]));
+  clients[1].frames(600);assert.ok(clients[1].store.trumpElonHighScore);
+  assert.equal(clients[2].store.trumpElonHighScore,undefined);assert.equal(clients[2].nodes.get('gameOver').hidden,true);
+});
+
+test('phone resizing preserves the run and keeps at least 390 vertical world units',()=>{
+  const app=setup(),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');app.frames(5);
+  for(const rect of [{width:298,height:268},{width:370,height:366},{width:818,height:266},{width:714,height:196},{width:1000,height:475}]){
+    app.resize(rect);app.transforms.length=0;app.frames(1);
+    assert.equal(get('gameCanvas').width,rect.width);assert.equal(get('gameCanvas').height,rect.height);
+    const scale=app.transforms[0][0];assert.ok(rect.height/scale>=390-1e-8);
+    assert.equal(get('startScreen').hidden,true);
+  }
+  app.resize({width:0,height:0});app.frames(1);assert.equal(get('gameCanvas').width,1000);
 });
 
 test('keyboard and touch jumps both lift the riders and preserve the horizontal sprite',()=>{

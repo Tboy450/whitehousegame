@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f3f1e9">
   <meta name="description" content="Two riders. One rocket. An endless, one-button arcade run inspired by the classic offline dinosaur game.">
   <title>Trump & Elon · Rocket Run</title>
   <link rel="icon" href="data:,">
+  <link rel="preload" href="assets/rocket-duo.png" as="image" fetchpriority="high">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -33,9 +34,9 @@
           <div class="eyebrow"><span class="tiny-cross" aria-hidden="true">+</span> TWO RIDERS. ONE ROCKET.</div>
           <h1>ROCKET<br><span>RUN.</span></h1>
           <p class="menu-description">One small jump.<br>One very unlikely crew.</p>
-          <button id="startButton" class="primary-button" type="button" disabled>PREPARING CREW…</button>
+          <button id="startButton" class="primary-button" type="button">LET’S FLY <span aria-hidden="true">↗</span></button>
           <p class="start-hint">PRESS <kbd>SPACE</kbd> TO LAUNCH</p>
-          <p id="assetError" class="asset-error" hidden>The crew artwork couldn’t load. Refresh to try again.</p>
+          <p id="assetError" class="asset-error" role="status" hidden>Reserve crew ready. Full artwork couldn’t load.<button id="retryArtwork" type="button">Retry artwork</button></p>
         </div>
         <div id="crewLabel" class="crew-label"><span>TRUMP + ELON</span><small>CREW: 02 &nbsp; / &nbsp; ROCKET: 01</small></div>
         <fieldset id="scenePicker" class="scene-picker">
