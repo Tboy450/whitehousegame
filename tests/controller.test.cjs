@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const core = require('../game-core.js');
+const artwork = require('../game-art.js');
 
 // Exercise real controller events with a minimal DOM/canvas adapter, without a browser dependency.
 function setup({ storageFails=false, imageFails=false, engine=core }={}) {
@@ -12,7 +13,7 @@ function setup({ storageFails=false, imageFails=false, engine=core }={}) {
   let time=0, imageDraws=0, activeElement;
   ctx.drawImage=()=>imageDraws++;
   function element(id='',tag='DIV') {
-    return {id,tagName:tag,hidden:false,disabled:false,inert:false,textContent:'',innerHTML:'',className:'',dataset:{},attributes:{},events:{},children:[],
+    return {id,tagName:tag,hidden:false,disabled:false,inert:false,textContent:'',innerHTML:'',className:'',dataset:{},style:{},attributes:{},events:{},children:[],
       addEventListener(type,listener){(this.events[type] ||= []).push(listener);},
       setAttribute(key,value){this.attributes[key]=value;},
       replaceChildren(...children){this.children=children;},
@@ -26,7 +27,7 @@ function setup({ storageFails=false, imageFails=false, engine=core }={}) {
   for(const match of html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)) nodes.set(match[2],element(match[2],match[1].toUpperCase()));
   const document={getElementById:id=>{assert.ok(nodes.has(id),'Missing HTML id: '+id);return nodes.get(id);},createElement:tag=>element('',tag.toUpperCase()),createTextNode:text=>({textContent:text}),
     addEventListener:(type,listener)=>(documentEvents[type] ||= []).push(listener),hidden:false,get activeElement(){return activeElement;}};
-  const window={RocketRunner:engine,devicePixelRatio:1,matchMedia:()=>({matches:false}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
+  const window={RocketRunner:engine,RocketArtwork:artwork,devicePixelRatio:1,matchMedia:()=>({matches:false}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
   const sandbox={window,document,performance:{now:()=>time},localStorage:{getItem:key=>{if(storageFails)throw Error('blocked');return store[key];},setItem:(key,value)=>{if(storageFails)throw Error('blocked');store[key]=value;}},
     Image:class{naturalWidth=1536;naturalHeight=1024;set src(_){imageFails?this.onerror():this.onload();}},ResizeObserver:class{constructor(callback){this.callback=callback;}observe(){this.callback();}},requestAnimationFrame:callback=>frameQueue.push(callback),Math,Set,Number,String,Object};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../game.js'),'utf8'),sandbox);
@@ -98,4 +99,28 @@ test('level advancement rotates sector scenery and announces the change',()=>{
   app.frames(3);
   assert.equal(app.nodes.get('gameContainer').dataset.scene,'mars');
   assert.match(app.nodes.get('milestone').textContent,/MARS/);
+});
+
+test('each map launches with matching hazards and a themed crash message',()=>{
+  for(const [button,sector,quip] of [['moonButton','moon',/moon/],['marsButton','mars',/Mars/],['areaButton','area51',/never happened/],['lockheedButton','lockheed',/classified/],['spacexButton','spacex',/parking/]]){
+    let runner;
+    class ControlledRunner extends core.Runner {constructor(){super(()=>0);runner=this;}}
+    const app=setup({engine:{...core,Runner:ControlledRunner}});
+    app.dispatch(app.nodes.get(button),'click');app.dispatch(app.nodes.get('startButton'),'click');app.frames(600);
+    assert.equal(runner.collision.sector,sector);assert.equal(app.nodes.get('gameOver').hidden,false);
+    assert.match(app.nodes.get('resultMessage').textContent,quip);
+  }
+});
+
+test('the route indicator reflects progress, the chosen start, and an endless sector change',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner {constructor(){super();runner=this;}}
+  const app=setup({engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
+  app.dispatch(get('spacexButton'),'click');assert.equal(get('nextSector').textContent,'NEXT: MOON');
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;runner.distance=3599;
+  app.frames(3);assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])>=300);
+  runner.score=2999;runner.level=10;runner.distance=35999;app.frames(3);
+  assert.equal(get('gameContainer').dataset.scene,'spacex');
+  assert.match(get('milestone').textContent,/STARBASE/);assert.equal(get('nextSector').textContent,'NEXT: MOON');
+  assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<10);
 });

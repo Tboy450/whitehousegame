@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const port = Number(process.env.PORT || 5173);
-const allowed = new Set(['index.html', 'style.css', 'game.js', 'game-core.js']);
+const allowed = new Set(['index.html', 'style.css', 'game.js', 'game-core.js', 'game-art.js']);
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
 http.createServer((request, response) => {
   let name;

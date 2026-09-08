@@ -8,22 +8,13 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let state = 'menu', ready = false, lastTime = null, accumulator = 0, sceneTime = 0, sceneDistance = 0;
   let best = 0, audio = null, sound = false, particles = [], particleClock = 0, milestoneUntil = 0;
+  let scorePopups = [];
   let gameOverAt = 0, width = 1200, height = 570, dpr = 1;
   let selectedScene = 0, shownScene = -1;
-  const scenes = [
-    { id: 'moon', title: 'THE MOON*', joke: '*a.k.a. the Nevada desert.', announcement: 'NEXT STOP: THE MOON. DEFINITELY NOT NEVADA.',
-      sky: '#f8f8f1', dust: '#ecedde', ridge: '#e0e5d6', ridgeShadow: '#d5ddc9', ground: '#959f81', speck: '#cbd1bb', rock: '#adb69a', sun: '#f0e8c8', cactus: '#afb99a' },
-    { id: 'mars', title: 'MARS*', joke: '*Arizona, with the saturation turned up.', announcement: 'WELCOME TO MARS. ARIZONA SENDS ITS REGARDS.',
-      sky: '#faf0df', dust: '#edc7a5', ridge: '#dfa785', ridgeShadow: '#d19573', ground: '#ad7152', speck: '#cf9e7b', rock: '#b57d58', sun: '#eac5a3', cactus: '#c28b64' },
-    { id: 'area51', title: 'AREA 51', joke: 'Just a weather balloon. Keep moving.', announcement: 'AREA 51 — YOU SAW ABSOLUTELY NOTHING.',
-      sky: '#232d3c', dust: '#3a454b', ridge: '#303d4b', ridgeShadow: '#263443', ground: '#8a9b7d', speck: '#566461', rock: '#7d8b76', sun: '#acbba0', cactus: '#626e64' },
-    { id: 'lockheed', title: 'LOCKHEED MARTIN / SKUNK WORKS', joke: 'Even the cacti signed NDAs.', announcement: 'SKUNK WORKS — THIS RUN IS CLASSIFIED.',
-      sky: '#eaf0ef', dust: '#d9d8ca', ridge: '#bdcacc', ridgeShadow: '#a8b9bd', ground: '#7d8d8e', speck: '#b4b8a9', rock: '#9ca69b', sun: '#d1dedd', cactus: '#98a79c' },
-    { id: 'spacex', title: 'SPACEX / STARBASE', joke: 'Some assembly required. Rapid disassembly included.', announcement: 'STARBASE — PLEASE KEEP ALL ROCKET PARTS.',
-      sky: '#edf5f4', dust: '#e6dfc9', ridge: '#c8dedd', ridgeShadow: '#accdcd', ground: '#8aada1', speck: '#c3c5ad', rock: '#a6b39a', sun: '#f0deb2', cactus: '#9bbdaa' }
-  ];
+  const { Art, SCENES: scenes } = window.RocketArtwork;
+  const art = new Art(ctx);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
-  const currentSceneIndex = () => (selectedScene + Math.floor((game.level - 1) / 2)) % scenes.length;
+  const currentSceneIndex = () => game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
   const activeJumpInputs = new Set();
   try { best = Math.max(0, Math.floor(Number(localStorage.getItem('trumpElonHighScore')) || 0)); } catch (_) {}
@@ -88,10 +79,17 @@
       $('sectorLabel').replaceChildren(document.createTextNode(scene.title), Object.assign(document.createElement('small'), {textContent:scene.joke}));
     }
     $('speedLabel').textContent = state === 'menu' ? 'BOUND FOR SOMEWHERE ↗' : Math.round(game.speed / RULES.initialSpeed * 100) + '% CRUISING SPEED →';
+    const routePoint = state === 'menu' ? 0 : game.score % 600;
+    const destination = ['MOON','MARS','AREA 51','SKUNK WORKS','STARBASE'][(nextScene + 1) % scenes.length];
+    $('nextSector').textContent = 'NEXT: ' + destination;
+    $('routeRemaining').textContent = (600 - routePoint) + ' PTS';
+    $('routeFill').style.width = (routePoint / 6) + '%';
+    $('routeProgress').setAttribute('aria-valuenow', String(routePoint));
+    $('routeProgress').setAttribute('aria-valuetext', (600 - routePoint) + ' points to ' + destination);
   }
   function start() {
     if (!ready) return;
-    game.start(); activeJumpInputs.clear(); particles = []; particleClock = 0;
+    game.start(selectedScene); activeJumpInputs.clear(); particles = []; scorePopups = []; particleClock = 0;
     accumulator = 0; lastTime = null; sceneDistance = 0; milestoneUntil = 0;
     $('milestone').textContent = ''; setState('playing'); updateHUD(); tone('start'); stage.focus({preventScroll:true});
   }
@@ -104,7 +102,7 @@
     }
   }
   function menu() {
-    game.reset(); activeJumpInputs.clear(); accumulator = 0; particles = [];
+    game.reset(); activeJumpInputs.clear(); accumulator = 0; particles = []; scorePopups = [];
     $('milestone').textContent = ''; setState('menu'); updateHUD(); $('startButton').focus({preventScroll:true});
   }
   function burst(x, y, count, color) {
@@ -117,6 +115,8 @@
     try { localStorage.setItem('trumpElonHighScore', String(best)); } catch (_) {}
     activeJumpInputs.clear(); game.releaseJump();
     $('resultEyebrow').textContent = record ? 'A NEW PERSONAL BEST' : 'A SLIGHT DETOUR';
+    const crashScene = scenes.find(scene => scene.id === game.collision?.sector) || currentScene();
+    $('resultMessage').textContent = crashScene.crashes[game.passed % crashScene.crashes.length];
     $('finalScore').textContent = pad(game.score); $('finalBest').textContent = pad(best); $('levelReached').textContent = game.level;
     $('milestone').textContent = ''; setState('over'); updateHUD();
     burst(game.player.x + 160, game.player.y - 25, 22, '#e9502f');
@@ -181,105 +181,9 @@
   window.addEventListener('blur', () => { if (state === 'playing') pause(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') pause(); });
 
-  function pixelCloud(x,y,s,alpha) {
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); ctx.scale(s,s); ctx.globalAlpha=alpha;
-    ctx.fillStyle='#e2e7dc'; ctx.fillRect(0,10,84,14); ctx.fillRect(15,2,30,12); ctx.fillRect(38,-5,27,19); ctx.fillRect(68,6,9,12);
-    ctx.fillStyle='#f8f8f1'; ctx.fillRect(5,10,69,7); ctx.fillRect(19,5,25,9); ctx.fillRect(43,-1,17,15);
-    ctx.restore();
-  }
-  function cactus(x,y,w,h,decorative=false) {
-    const u = w / 29;
-    ctx.save(); ctx.translate(Math.round(x),Math.round(y)); ctx.scale(u,h/53);
-    const dark = currentScene().id === 'area51';
-    const fill = decorative ? currentScene().cactus : dark ? '#99ac7d' : '#55634b', edge = decorative ? currentScene().cactus : dark ? '#d4dfb8' : '#303e31';
-    ctx.fillStyle=edge;
-    ctx.fillRect(10,3,10,50);ctx.fillRect(12,0,6,4);ctx.fillRect(0,15,7,20);ctx.fillRect(4,29,12,8);ctx.fillRect(23,9,6,19);ctx.fillRect(17,23,11,7);
-    ctx.fillStyle=fill;
-    ctx.fillRect(12,5,6,46);ctx.fillRect(2,17,3,15);ctx.fillRect(5,31,8,3);ctx.fillRect(25,11,2,14);ctx.fillRect(19,25,7,3);
-    ctx.fillStyle=decorative?currentScene().cactus:dark?'#dae4b1':'#8b9a64';ctx.fillRect(13,6,2,40);ctx.fillRect(2,17,2,11);ctx.fillRect(25,12,1,10);
-    if(!decorative){ctx.fillStyle='#d8c598';ctx.fillRect(15,12,2,2);ctx.fillRect(11,24,2,2);ctx.fillRect(17,39,2,2);}
-    ctx.restore();
-  }
-  function rock(o) {
-    ctx.save();ctx.translate(Math.round(o.x),Math.round(o.y));ctx.fillStyle='#625d4e';
-    ctx.beginPath();ctx.moveTo(0,35);ctx.lineTo(0,20);ctx.lineTo(8,20);ctx.lineTo(8,9);ctx.lineTo(16,9);ctx.lineTo(16,3);ctx.lineTo(32,3);ctx.lineTo(32,10);ctx.lineTo(39,10);ctx.lineTo(39,22);ctx.lineTo(44,22);ctx.lineTo(44,35);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#a99b7f';ctx.fillRect(9,20,27,12);ctx.fillRect(17,10,14,20);ctx.fillStyle='#cab997';ctx.fillRect(18,11,10,4);ctx.fillRect(10,21,6,4);ctx.fillStyle='#7d725e';ctx.fillRect(28,22,7,9);ctx.fillRect(17,29,5,3);ctx.restore();
-  }
-  function facilityScenery(viewWidth,ground,palette) {
-    const restricted=palette.id==='area51', aerospace=palette.id==='lockheed', launch=palette.id==='spacex';
-    if(!restricted&&!aerospace&&!launch)return;
-    const shift=((sceneDistance*.15)%(viewWidth+600));
-    const x=((viewWidth*.57-shift+viewWidth+600)%(viewWidth+600))-150;
-    ctx.save();ctx.translate(Math.round(x),Math.round(ground));
-    // These are deliberately fictional pixel sets, with no real facility layouts.
-    const body=restricted?'#58666a':launch?'#acc6c6':'#9bafb4';
-    const shade=restricted?'#3e4d55':launch?'#86aaa9':'#80969e';
-    ctx.fillStyle=body;ctx.fillRect(0,-74,200,74);ctx.fillRect(12,-87,176,13);ctx.fillRect(24,-94,152,7);
-    ctx.fillStyle=shade;ctx.fillRect(17,-61,64,61);ctx.fillRect(102,-61,80,61);
-    ctx.fillStyle=body;for(let i=0;i<8;i++)ctx.fillRect(18,-56+i*7,162,2);
-    ctx.fillStyle=restricted?'#a1b69c':'#dbe5df';ctx.fillRect(24,-77,14,5);ctx.fillRect(44,-77,14,5);ctx.fillRect(155,-77,16,5);
-    if(restricted){
-      ctx.fillStyle='#82947c';ctx.fillRect(236,-135,4,135);ctx.fillRect(220,-143,36,4);ctx.fillRect(224,-156,28,4);ctx.fillRect(218,-153,5,12);ctx.fillRect(253,-153,5,12);ctx.fillRect(225,-147,27,3);
-      ctx.fillStyle='#a3b788';ctx.fillRect(234,-162,8,4);
-      for(let i=-100;i<400;i+=25){ctx.fillStyle='#708479';ctx.fillRect(i,-26,2,26);ctx.fillRect(i,-20,25,1);ctx.fillRect(i,-7,25,1);}
-      const hover=reducedMotion?0:Math.sin(sceneTime*1.7)*4;
-      ctx.fillStyle='#829e8b';ctx.fillRect(105,-190+hover,61,8);ctx.fillRect(96,-187+hover,79,3);ctx.fillRect(119,-203+hover,32,13);ctx.fillRect(127,-209+hover,16,6);
-      ctx.fillStyle='#cce2ac';ctx.fillRect(120,-201+hover,28,6);ctx.fillRect(110,-186+hover,6,2);ctx.fillRect(132,-186+hover,6,2);ctx.fillRect(154,-186+hover,6,2);
-    }
-    if(aerospace){
-      ctx.fillStyle='#778c93';ctx.fillRect(234,-119,18,119);ctx.fillRect(217,-136,54,17);ctx.fillRect(224,-143,40,7);
-      ctx.fillStyle='#cbd9d8';ctx.fillRect(223,-131,43,8);
-      ctx.fillStyle='#71858c';ctx.fillRect(-103,-10,111,7);ctx.fillRect(-82,-19,45,9);ctx.fillRect(-62,-28,15,12);ctx.fillRect(-99,-25,7,18);ctx.fillRect(-29,-14,26,5);
-      ctx.fillStyle='#b6c6c6';ctx.fillRect(-62,-24,11,7);
-    }
-    if(launch){
-      ctx.fillStyle='#7e9fa2';ctx.fillRect(240,-181,8,181);ctx.fillRect(284,-181,8,181);ctx.fillRect(237,-186,58,8);
-      for(let i=0;i<8;i++){ctx.fillRect(246,-172+i*21,42,4);ctx.fillRect(252+(i%2)*17,-166+i*21,5,15);}
-      ctx.fillStyle='#b4cbcb';ctx.fillRect(245,-161,40,5);ctx.fillRect(280,-165,61,7);ctx.fillRect(334,-162,4,55);
-      ctx.fillStyle='#a5c1bf';ctx.fillRect(-96,-42,22,42);ctx.fillRect(-100,-37,30,32);ctx.fillRect(-54,-34,21,34);ctx.fillRect(-58,-28,29,22);
-      ctx.fillStyle='#d1e0d8';ctx.fillRect(-91,-32,4,23);ctx.fillRect(-50,-25,4,18);
-    }
-    ctx.restore();
-  }
   function background(viewWidth,viewHeight,ground) {
-    const palette=currentScene(), mars=palette.id==='mars', night=palette.id==='area51';
-    ctx.fillStyle=palette.sky;ctx.fillRect(0,0,viewWidth,viewHeight);
-    // Quiet pixel texture and distant, slowly scrolling scenery echo the offline runner.
-    ctx.fillStyle=night?'#d3dfca':'#dce2d4';
-    for(let i=0;i<30;i++){
-      const x=((i*173+47-sceneDistance*.025)%(viewWidth+80)+viewWidth+80)%(viewWidth+80)-40;
-      const y=58+(i*79)%Math.max(100,ground-170);
-      ctx.globalAlpha=night?.75:.45;ctx.fillRect(Math.round(x),Math.round(y),2,2);
-      if(night&&i%4===0){ctx.fillRect(Math.round(x)-2,Math.round(y)+1,6,1);ctx.fillRect(Math.round(x)+1,Math.round(y)-2,1,6);}
-    }
-    ctx.globalAlpha=1;
-    const sunX=viewWidth*.79,sunY=Math.min(ground*.4,165);
-    ctx.fillStyle=palette.sun;ctx.fillRect(sunX-30,sunY-38,60,76);ctx.fillRect(sunX-38,sunY-28,76,56);ctx.fillRect(sunX-23,sunY-44,46,88);ctx.fillRect(sunX-44,sunY-20,88,40);
-    if(mars){ctx.fillStyle='#dfbca2';ctx.fillRect(sunX-124,sunY-36,14,22);ctx.fillRect(sunX-128,sunY-31,22,12);ctx.fillRect(sunX+91,sunY+12,10,16);ctx.fillRect(sunX+88,sunY+16,16,8);}
-    for(let i=0;i<(night?0:5);i++){
-      const x=((i*310+80-sceneDistance*.06)%(viewWidth+220)+viewWidth+220)%(viewWidth+220)-110;
-      pixelCloud(x,90+(i*57)%150,.7+(i%3)*.3,.68);
-    }
-    ctx.fillStyle=palette.ridge;
-    for(let i=0;i<6;i++){
-      const x=((i*370-sceneDistance*.12)%(viewWidth+500)+viewWidth+500)%(viewWidth+500)-250;
-      const h=mars?85+(i%3)*32:35+(i%3)*18;
-      ctx.beginPath();ctx.moveTo(x,ground);ctx.lineTo(x,ground-10);ctx.lineTo(x+35,ground-10);ctx.lineTo(x+35,ground-h*.5);ctx.lineTo(x+65,ground-h*.5);ctx.lineTo(x+65,ground-h);ctx.lineTo(x+130,ground-h);ctx.lineTo(x+130,ground-h*.7);ctx.lineTo(x+154,ground-h*.7);ctx.lineTo(x+154,ground-15);ctx.lineTo(x+210,ground-15);ctx.lineTo(x+210,ground);ctx.closePath();ctx.fill();
-      if(mars){ctx.fillStyle=palette.ridgeShadow;ctx.fillRect(x+65,ground-h+13,65,5);ctx.fillRect(x+35,ground-h*.5+9,119,3);ctx.fillRect(x+110,ground-h+18,20,h-18);ctx.fillStyle=palette.ridge;}
-    }
-    ctx.fillStyle=palette.dust;ctx.fillRect(0,ground,viewWidth,viewHeight-ground);
-    ctx.fillStyle=palette.ground;ctx.fillRect(0,Math.round(ground),viewWidth,2);
-    ctx.fillStyle=palette.speck;ctx.fillRect(0,Math.round(ground)+4,viewWidth,1);
-    for(let i=0;i<4;i++){
-      const x=((i*405+240-sceneDistance*.2)%(viewWidth+300)+viewWidth+300)%(viewWidth+300)-150;
-      cactus(x,ground-32,17,31,true);
-    }
-    facilityScenery(viewWidth,ground,palette);
-    for(let i=0;i<66;i++){
-      const x=((i*73+17-sceneDistance)%(viewWidth+100)+viewWidth+100)%(viewWidth+100)-50;
-      const y=ground+12+(i*17)%70;
-      ctx.fillStyle=i%3===0?palette.rock:palette.speck;ctx.fillRect(Math.round(x),Math.round(y),i%4===0?10:4,2);
-    }
+    art.background({index:state === 'menu' ? selectedScene : game.sectorIndex,
+      width:viewWidth,height:viewHeight,ground,distance:sceneDistance,time:sceneTime,reduced:reducedMotion});
   }
   function drawCrew(x,bottom,w,bob=0) {
     if(!ready)return;
@@ -311,17 +215,18 @@
     ctx.save();ctx.scale(scale,scale);
     background(viewWidth,viewHeight,ground);
     ctx.save();ctx.translate(0,ground-RULES.ground);
-    for(const o of game.obstacles){
-      if(o.type==='rock')rock(o);
-      else if(o.type==='double'){cactus(o.x,o.y+8,28,o.height-8);cactus(o.x+34,o.y,30,o.height);}
-      else cactus(o.x,o.y,o.width,o.height);
-    }
+    for(const obstacle of game.obstacles) art.obstacle(obstacle,sceneTime);
     const p=game.player;
     const altitude=RULES.ground-p.y;
     ctx.globalAlpha=Math.max(.1,.25-altitude*.0008);ctx.fillStyle='#596447';ctx.beginPath();ctx.ellipse(p.x+108,RULES.ground-1,Math.max(24,75-altitude*.15),4,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
     for(const part of particles){ctx.globalAlpha=Math.min(1,part.life*2);ctx.fillStyle=part.color;ctx.fillRect(part.x,part.y,part.size,part.size);}
     ctx.globalAlpha=1;
     drawCrew(p.x,p.y-4,RULES.playerWidth,(p.airborne||reducedMotion||state!=='playing')?0:Math.sin(sceneTime*13)*1.2);
+    for(const popup of scorePopups){
+      ctx.globalAlpha=Math.min(1,popup.life*2);ctx.fillStyle=currentScene().id==='area51'?'#d9eab2':'#a64928';
+      ctx.font='bold 16px "Courier New", monospace';ctx.textAlign='center';ctx.fillText(popup.text,popup.x,popup.y);
+    }
+    ctx.globalAlpha=1;
     ctx.restore();ctx.restore();
   }
   function frame(timestamp) {
@@ -333,12 +238,21 @@
       while(accumulator>=RULES.step){
         const events=game.update(RULES.step);accumulator-=RULES.step;
         for(const event of events){
-          tone(event);
+          if(event!=='level'||!events.includes('sector')) tone(event==='sector'?'level':event);
           if(event==='land')burst(game.player.x+70,RULES.ground-3,5,'#aeb497');
+          if(event==='pass'){
+            scorePopups.push({x:game.player.x+100,y:game.player.y-151,life:.8,text:game.passed%5===0?game.passed+' CLEARED!':'+10'});
+            burst(game.player.x+40,game.player.y-50,4,currentScene().id==='area51'?'#c5df9e':'#d99648');
+          }
           if(event==='level'){
-            const sceneChanged=currentSceneIndex()!==shownScene;
-            milestoneUntil=sceneTime+(sceneChanged?3:1.8);
-            $('milestone').textContent=sceneChanged?currentScene().announcement:'LEVEL '+String(game.level).padStart(2,'0')+' — KEEP FLYING';
+            if(!events.includes('sector')){
+              milestoneUntil=sceneTime+1.8;
+              $('milestone').textContent='LEVEL '+String(game.level).padStart(2,'0')+' — KEEP FLYING';
+            }
+          }
+          if(event==='sector'){
+            milestoneUntil=sceneTime+3;
+            $('milestone').textContent=currentScene().announcement;
           }
           if(event==='crash'){endRun();accumulator=0;break;}
         }
@@ -354,6 +268,8 @@
     if(state!=='paused'){
       particles=particles.filter(p=>p.life>0);
       for(const p of particles){p.x+=p.vx*delta;p.y+=p.vy*delta;p.life-=delta;}
+      scorePopups=scorePopups.filter(p=>p.life>0);
+      for(const popup of scorePopups){popup.life-=delta;if(!reducedMotion)popup.y-=delta*25;}
     }
     draw();
     requestAnimationFrame(frame);

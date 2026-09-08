@@ -4,12 +4,43 @@
   const RULES = Object.freeze({ width: 1200, height: 570, ground: 464, playerX: 154,
     playerWidth: 200, playerHeight: 112, gravity: 1850, jumpVelocity: -780,
     initialSpeed: 330, maxSpeed: 680, step: 1 / 120 });
-  const OBSTACLES = Object.freeze([
-    { type: 'cactus', width: 29, height: 53 },
-    { type: 'rock', width: 44, height: 35 },
-    { type: 'double', width: 64, height: 48 },
-    { type: 'tall', width: 34, height: 67 }
-  ]);
+  const SECTOR_IDS = Object.freeze(['moon', 'mars', 'area51', 'lockheed', 'spacex']);
+  const SECTOR_OBSTACLES = Object.freeze({
+    moon: [
+      { type: 'moon_rock', label: 'Moon rock', width: 44, height: 35 },
+      { type: 'film_camera', label: 'Film camera', width: 34, height: 57 },
+      { type: 'lunar_rover', label: 'Lunar rover', width: 64, height: 43 },
+      { type: 'studio_light', label: 'Studio light', width: 32, height: 65 }
+    ],
+    mars: [
+      { type: 'red_basalt', label: 'Red basalt', width: 42, height: 39 },
+      { type: 'sample_canister', label: 'Sample canister', width: 32, height: 53 },
+      { type: 'mars_rover', label: 'Mars rover', width: 64, height: 47 },
+      { type: 'relay_mast', label: 'Relay mast', width: 34, height: 65 }
+    ],
+    area51: [
+      { type: 'secret_crate', label: 'Classified crate', width: 40, height: 43 },
+      { type: 'parked_ufo', label: 'Parked UFO', width: 60, height: 37 },
+      { type: 'alien', label: 'Lost alien', width: 32, height: 62 },
+      { type: 'checkpoint', label: 'Checkpoint barrier', width: 64, height: 47 }
+    ],
+    lockheed: [
+      { type: 'tool_chest', label: 'Tool chest', width: 44, height: 39 },
+      { type: 'jet_engine', label: 'Jet engine', width: 50, height: 53 },
+      { type: 'radar_cart', label: 'Radar cart', width: 35, height: 63 },
+      { type: 'equipment_cart', label: 'Equipment cart', width: 64, height: 44 }
+    ],
+    spacex: [
+      { type: 'booster_section', label: 'Booster section', width: 62, height: 39 },
+      { type: 'fuel_tank', label: 'Fuel tank', width: 34, height: 53 },
+      { type: 'rocket_engine', label: 'Rocket engine', width: 40, height: 62 },
+      { type: 'robot_cart', label: 'Robot cart', width: 58, height: 47 }
+    ]
+  });
+  for (const list of Object.values(SECTOR_OBSTACLES)) {
+    list.forEach(Object.freeze); Object.freeze(list);
+  }
+  const OBSTACLES = Object.freeze(Object.values(SECTOR_OBSTACLES).flat());
   function intersects(a, b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
   }
@@ -18,10 +49,17 @@
     reset() {
       this.state = 'ready'; this.time = 0; this.distance = 0; this.score = 0; this.passed = 0;
       this.level = 1; this.speed = RULES.initialSpeed; this.obstacles = [];
+      this.startSector = 0; this.collision = null;
       this.spawnIn = 2.1; this.jumpBuffer = 0; this.held = false;
       this.player = { x: RULES.playerX, y: RULES.ground, vy: 0, airborne: false, jumpTime: 0, cut: false };
     }
-    start() { this.reset(); this.state = 'playing'; }
+    start(sectorIndex = 0) {
+      this.reset();
+      this.startSector = Number.isInteger(sectorIndex) && sectorIndex >= 0 && sectorIndex < SECTOR_IDS.length ? sectorIndex : 0;
+      this.state = 'playing';
+    }
+    get sectorIndex() { return (this.startSector + Math.floor(this.score / 600)) % SECTOR_IDS.length; }
+    get sectorId() { return SECTOR_IDS[this.sectorIndex]; }
     pressJump() {
       if (this.state !== 'playing') return false;
       this.held = true; this.jumpBuffer = .13;
@@ -42,15 +80,18 @@
       ];
     }
     spawn() {
-      const available = this.level < 2 ? 2 : OBSTACLES.length;
-      const kind = OBSTACLES[Math.min(available - 1, Math.floor(this.random() * available))];
-      this.obstacles.push({ ...kind, x: RULES.width + 35, y: RULES.ground - kind.height, passed: false });
+      const choices = SECTOR_OBSTACLES[this.sectorId];
+      const available = this.time < 8 ? 2 : choices.length;
+      const kind = choices[Math.min(available - 1, Math.floor(this.random() * available))];
+      // Obstacles retain their original art when a sector changes while they are on screen.
+      this.obstacles.push({ ...kind, sector: this.sectorId, x: RULES.width + 35, y: RULES.ground - kind.height, passed: false });
       // At every speed there is room to land, react, and jump again.
       this.spawnIn = 1.45 + this.random() * .65 + (kind.width + 128) / this.speed;
     }
     update(dt) {
       if (this.state !== 'playing') return [];
       const events = [];
+      const previousSector = this.sectorIndex;
       this.time += dt; this.distance += this.speed * dt; this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
       const p = this.player;
       if (p.airborne) {
@@ -67,18 +108,22 @@
       for (const obstacle of this.obstacles) {
         obstacle.x -= this.speed * dt;
         const box = { x: obstacle.x + 4, y: obstacle.y + 4, width: obstacle.width - 8, height: obstacle.height - 4 };
-        if (this.hitboxes().some(body => intersects(body, box))) { this.state = 'over'; events.push('crash'); return events; }
+        if (this.hitboxes().some(body => intersects(body, box))) {
+          this.state = 'over'; this.collision = { type: obstacle.type, label: obstacle.label, sector: obstacle.sector };
+          events.push('crash'); return events;
+        }
         if (!obstacle.passed && obstacle.x + obstacle.width < p.x + 35) { obstacle.passed = true; this.passed++; events.push('pass'); }
       }
       this.obstacles = this.obstacles.filter(o => o.x + o.width > -40);
       this.score = Math.floor(this.distance / 12) + this.passed * 10;
       const nextLevel = Math.min(10, 1 + Math.floor(this.score / 300));
       if (nextLevel > this.level) { this.level = nextLevel; events.push('level'); }
+      if (this.sectorIndex !== previousSector) events.push('sector');
       this.speed = Math.min(RULES.maxSpeed, RULES.initialSpeed + this.time * 2.3);
       return events;
     }
   }
-  const api = { Runner, RULES, OBSTACLES, intersects };
+  const api = { Runner, RULES, OBSTACLES, SECTOR_IDS, SECTOR_OBSTACLES, intersects };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RocketRunner = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

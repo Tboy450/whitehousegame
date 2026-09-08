@@ -4,7 +4,7 @@ A horizontal, one-button desert runner inspired by the Chrome offline dinosaur g
 
 ## Play
 
-Open `index.html` directly, or run `npm run dev` and visit the printed local address. The game and its font use local assets and have no runtime dependencies.
+[Play the public web copy](https://whitehouse-rocket-run-tboy450.tboy450.chatgpt.site/), open `index.html` directly, or run `npm run dev` and visit the printed local address. The game and its font use local assets and have no runtime dependencies.
 
 - **Space / Up / W / tap:** jump.
 - **Hold:** jump higher. Release for a shorter jump.
@@ -15,15 +15,17 @@ Open `index.html` directly, or run `npm run dev` and visit the printed local add
 
 ## Five selectable sectors
 
-| Sector | In-game location caption | Scenery |
+| Sector | Background references | Four themed obstacles |
 | --- | --- | --- |
-| The Moon* | *a.k.a. the Nevada desert. | Pale desert, low mesas |
-| Mars* | *Arizona, with the saturation turned up. | Red sand, layered buttes, two moons |
-| Area 51 | Just a weather balloon. Keep moving. | Night sky, hangars, radar, a floating saucer |
-| Lockheed Martin / Skunk Works | Even the cacti signed NDAs. | Airfield, hangars, control tower |
-| SpaceX / Starbase | Some assembly required. Rapid disassembly included. | Coastal desert, assembly buildings, tower and tanks |
+| The Moon / Nevada | Gold lander, flag, surface rover, film camera, lights, TAKE 1969 board | Moon rock, film camera, lunar rover, studio light |
+| Mars / Arizona | Layered canyons, two moons, habitats, solar arrays, rover, RED FILTER: ON sign | Red basalt, sample canister, Mars rover, relay mast |
+| Area 51 | Searchlight, radar dish, hangars, surveillance vehicle, UFO, weather-balloon parking | Classified crate, parked UFO, alien, checkpoint barrier |
+| Lockheed Martin / Skunk Works | Parked jets, hangars, control tower, spinning engine test rig, secret parking | Tool chest, jet engine, radar cart, equipment cart |
+| SpaceX / Starbase | Coastal horizon, Starfactory, boosters, catch tower, crane, tanks, rapid-unscheduled-parking sign | Booster section, fuel tank, rocket engine, robot cart |
 
-Choose a starting sector in the menu. Scenery advances every two levels, and wraps through all five. These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims.
+Choose a starting sector in the menu. Scenery advances every 600 points and keeps cycling through all five, including after difficulty caps at level 10. A progress indicator shows the next sector. Incoming obstacles keep their original appearance during a transition; new obstacles use the new sector's set. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
+
+These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims. All backgrounds and obstacles are original canvas pixel art, and none of the background props have collisions.
 
 ## Development
 
@@ -37,15 +39,16 @@ npm run build
 
 The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
-- `game-core.js`: fixed-step physics, collision, scoring, spacing, progression.
-- `game.js`: canvas scenery, keyboard/touch input, audio, menus, local best.
+- `game-core.js`: fixed-step physics, themed obstacle catalogs, collision, scoring, spacing, progression.
+- `game-art.js`: five background sets, twenty obstacle sprites, and map-specific captions.
+- `game.js`: rendering orchestration, keyboard/touch input, audio, menus, local best, score feedback.
 - `tests/`: deterministic simulation tests and controller tests using a minimal DOM adapter.
 - `assets/rocket-duo.png`: generated player artwork; provenance and prompt in `assets/ARTWORK.md`.
 - `SUBMISSION.md`: official contact route, research links, and an unsent submission inquiry.
 
 ## Validation
 
-Automated checks cover obstacle clearability at minimum/maximum speed, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage failures, keyboard/touch handlers, all five menu choices, and sector progression. Controller tests are not real-browser visual or accessibility testing.
+Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, parallax wrapping, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage failures, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

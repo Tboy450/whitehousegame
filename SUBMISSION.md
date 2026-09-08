@@ -12,13 +12,13 @@ Those sources establish an overlap in space transportation objectives. They do n
 
 ## Materials for a technical review
 
-- A publicly accessible playable URL. The current Sites preview is private and cannot serve as an unrestricted submission demo.
+- [Public playable demo](https://whitehouse-rocket-run-tboy450.tboy450.chatgpt.site/). Public access was enabled at the owner's request.
 - A brief gameplay clip showing launch, jumping, one scene change, and retry.
 - [Source repository](https://github.com/Tboy450/whitehousegame), with the completed changes on the improvement branch until merged.
 - A short description of keyboard/touch controls, local best-score storage, original artwork, and the absence of application analytics.
 - Accurate asset provenance. The crew sprite was generated with OpenAI's built-in image generation tool; the bundled font is SIL OFL licensed.
 
-No public release, contact-form submission, message, or ownership transfer is authorized by this draft.
+This draft does not authorize any contact-form submission, message, or ownership transfer. The game's public release was separately authorized by the owner.
 
 ## Copyable inquiry
 
@@ -30,7 +30,7 @@ I built an independent browser game called Rocket Run and would like to ask whet
 
 It is a one-button, side-scrolling runner featuring caricatures of Donald Trump and Elon Musk riding a horizontal rocket. It supports keyboard and touch controls and includes five fictional desert and aerospace sectors. Its location captions are satirical. It is not affiliated with or endorsed by the White House or the companies depicted.
 
-The source repository is https://github.com/Tboy450/whitehousegame. I can provide a playable public demo, a short gameplay recording, and information about the game's code and artwork.
+The playable demo is https://whitehouse-rocket-run-tboy450.tboy450.chatgpt.site/ and the source repository is https://github.com/Tboy450/whitehousegame. I can provide a short gameplay recording and information about the game's code and artwork.
 
 If submissions are accepted, could you direct me to the appropriate team and explain the technical, content, and licensing requirements?
 

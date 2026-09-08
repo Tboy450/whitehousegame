@@ -26,4 +26,7 @@
 @media(max-height:550px) and (orientation:landscape){.scene-picker{width:42%;bottom:46px}.scene-picker button{font-size:9px;padding:7px 5px}.scene-picker legend{font-size:8px;margin-bottom:4px}}
 @media(max-width:620px) and (min-height:551px){.is-paused .stage{min-height:360px}.is-over .stage{min-height:450px}}
 @media(max-height:550px) and (orientation:landscape){.dialog>p{display:none}}
+.route-progress{display:flex;align-items:center;gap:10px;font:10px var(--mono);letter-spacing:.4px}.route-track{width:65px;height:5px;background:#cdd3c0;display:block}.route-track>span{display:block;height:100%;width:0;background:var(--orange)}#routeRemaining{min-width:49px;text-align:right;color:#68705e}.game-shell[data-scene=area51] .route-track{background:#bdcbb6}
+@media(max-width:620px){.game-bottom-bar{flex-wrap:wrap;gap:8px}.route-progress{width:100%;justify-content:space-between;padding-top:7px;border-top:1px solid #cbd2c0;font-size:9px}.route-track{flex:1;margin:0 10px;max-width:130px}.game-bottom-bar>span:last-child{display:inline}}
+@media(max-height:550px) and (orientation:landscape){.route-progress{font-size:8px;gap:6px}.route-track{width:40px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}.overlay{backdrop-filter:none}}

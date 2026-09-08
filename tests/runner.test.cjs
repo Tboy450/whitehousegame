@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { Runner, RULES, OBSTACLES } = require('../game-core.js');
+const { Runner, RULES, OBSTACLES, SECTOR_IDS, SECTOR_OBSTACLES } = require('../game-core.js');
 const advance = (game, seconds) => { const events = []; for (let i=0; i<Math.round(seconds/RULES.step); i++) events.push(...game.update(RULES.step)); return events; };
 
 test('a missed jump ends the run and stops scoring', () => {
@@ -80,4 +80,45 @@ test('obstacle scheduling always leaves time to land and react', () => {
     const contactDuration=(128+game.obstacles[0].width)/speed;
     assert.ok(game.spawnIn-contactDuration >= 1.4);
   }
+});
+
+test('each starting map spawns its own obstacles, including all four designs after the warm-up', () => {
+  for (let sector=0; sector<SECTOR_IDS.length; sector++) {
+    const seen=new Set();
+    for(const roll of [0,.26,.51,.99]) {
+      const game=new Runner(()=>roll);game.start(sector);game.time=9;game.spawn();
+      const obstacle=game.obstacles[0];seen.add(obstacle.type);
+      assert.equal(obstacle.sector,SECTOR_IDS[sector]);
+      assert.ok(SECTOR_OBSTACLES[game.sectorId].some(kind=>kind.type===obstacle.type));
+    }
+    assert.equal(seen.size,4);
+  }
+});
+
+test('transition changes newly spawned hazards without transforming hazards already on screen', () => {
+  const game=new Runner(()=>0);game.start(4);game.time=9;game.spawn();
+  const incoming=JSON.stringify(game.obstacles[0]);
+  game.score=600;game.level=3;game.spawn();
+  assert.equal(game.sectorId,'moon');assert.equal(game.obstacles[1].sector,'moon');
+  assert.equal(JSON.stringify(game.obstacles[0]),incoming);
+  game.start(2);assert.equal(game.sectorId,'area51');assert.equal(game.obstacles.length,0);
+});
+
+test('collisions report the actual themed obstacle for the result message', () => {
+  const game=new Runner(()=>0);game.start(3);game.spawn();game.spawnIn=Infinity;
+  const obstacle=game.obstacles[0];obstacle.x=game.player.x+65;
+  game.update(RULES.step);
+  assert.equal(game.state,'over');assert.equal(game.collision.type,'tool_chest');
+  assert.equal(game.collision.sector,'lockheed');assert.equal(game.collision.label,'Tool chest');
+});
+
+test('scenery keeps cycling after difficulty reaches its cap', () => {
+  const game=new Runner();game.start();game.spawnIn=Infinity;
+  game.level=10;game.score=2999;game.distance=35999;
+  assert.equal(game.sectorId,'spacex');
+  const events=advance(game,.1);
+  assert.equal(game.level,10);assert.equal(game.sectorId,'moon');
+  assert.equal(events.filter(event=>event==='sector').length,1);
+  assert.equal(events.filter(event=>event==='level').length,0);
+  game.distance=43199;game.score=3599;advance(game,.1);assert.equal(game.sectorId,'mars');
 });
