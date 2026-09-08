@@ -1,0 +1,168 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Arial', sans-serif;
+    color: #fff;
+}
+
+#gameContainer {
+    position: relative;
+    background: #1a1a2e;
+    border: 4px solid #00d4ff;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+}
+
+#hud {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    background: #0f3460;
+    padding: 10px 20px;
+    border-bottom: 2px solid #00d4ff;
+    font-size: 16px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+#score, #highScore, #level {
+    color: #00ff00;
+    text-shadow: 0 0 10px #00ff00;
+}
+
+#gameCanvas {
+    display: block;
+    background: linear-gradient(180deg, #0a0e27 0%, #1a1a3e 100%);
+    cursor: none;
+}
+
+#gameOver {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+
+#gameOver.hidden {
+    display: none;
+}
+
+.gameOverContent {
+    text-align: center;
+    color: #00ff00;
+    text-shadow: 0 0 20px #00ff00;
+}
+
+.gameOverContent h1 {
+    font-size: 48px;
+    margin-bottom: 20px;
+    animation: blink 0.5s infinite;
+}
+
+.gameOverContent p {
+    font-size: 24px;
+    margin: 10px 0;
+}
+
+.gameOverContent button {
+    margin-top: 30px;
+    padding: 15px 30px;
+    font-size: 18px;
+    background: #00ff00;
+    color: #000;
+    border: 2px solid #00ff00;
+    cursor: pointer;
+    font-weight: bold;
+    text-transform: uppercase;
+    transition: all 0.3s;
+}
+
+.gameOverContent button:hover {
+    background: #00dd00;
+    box-shadow: 0 0 20px #00ff00;
+}
+
+#startScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+
+#startScreen.hidden {
+    display: none;
+}
+
+.startContent {
+    text-align: center;
+    color: #00ff00;
+}
+
+.startContent h1 {
+    font-size: 36px;
+    margin-bottom: 20px;
+    text-shadow: 0 0 20px #00ff00;
+}
+
+.startContent p {
+    font-size: 16px;
+    margin: 10px 0;
+    color: #fff;
+}
+
+.controls {
+    margin: 30px 0;
+    background: rgba(0, 255, 0, 0.1);
+    padding: 20px;
+    border-left: 3px solid #00ff00;
+}
+
+.controls p {
+    color: #00ff00;
+    margin: 10px 0;
+    font-size: 14px;
+}
+
+#startScreen button {
+    padding: 15px 40px;
+    font-size: 18px;
+    background: #00ff00;
+    color: #000;
+    border: 2px solid #00ff00;
+    cursor: pointer;
+    font-weight: bold;
+    text-transform: uppercase;
+    transition: all 0.3s;
+}
+
+#startScreen button:hover {
+    background: #00dd00;
+    box-shadow: 0 0 20px #00ff00;
+    transform: scale(1.05);
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
