@@ -16,7 +16,38 @@ try {
             $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
             $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
             $graphics.DrawImage($source, [System.Drawing.Rectangle]::new(0, 0, $size, $size))
-            $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+            if ($size -eq 256) {
+                $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+            } else {
+                # Classic Windows DIB frames work with Explorer and older icon readers.
+                # ICO bitmap height includes both the color image and transparency mask.
+                $frameWriter = [System.IO.BinaryWriter]::new($stream, [Text.Encoding]::UTF8, $true)
+                try {
+                    $frameWriter.Write([uint32]40)
+                    $frameWriter.Write([int32]$size); $frameWriter.Write([int32]($size * 2))
+                    $frameWriter.Write([uint16]1); $frameWriter.Write([uint16]32)
+                    $frameWriter.Write([uint32]0); $frameWriter.Write([uint32]($size * $size * 4))
+                    for ($field = 0; $field -lt 4; $field++) { $frameWriter.Write([uint32]0) }
+                    for ($y = $size - 1; $y -ge 0; $y--) {
+                        for ($x = 0; $x -lt $size; $x++) {
+                            $pixel = $bitmap.GetPixel($x, $y)
+                            $frameWriter.Write([byte]$pixel.B); $frameWriter.Write([byte]$pixel.G)
+                            $frameWriter.Write([byte]$pixel.R); $frameWriter.Write([byte]$pixel.A)
+                        }
+                    }
+                    $maskStride = [int]([Math]::Ceiling($size / 32.0) * 4)
+                    for ($y = $size - 1; $y -ge 0; $y--) {
+                        $mask = [byte[]]::new($maskStride)
+                        for ($x = 0; $x -lt $size; $x++) {
+                            if ($bitmap.GetPixel($x, $y).A -eq 0) {
+                                $index = [int][Math]::Floor($x / 8.0)
+                                $mask[$index] = $mask[$index] -bor (128 -shr ($x % 8))
+                            }
+                        }
+                        $frameWriter.Write($mask)
+                    }
+                } finally { $frameWriter.Dispose() }
+            }
             $frames.Add($stream.ToArray())
         } finally { $stream.Dispose(); $graphics.Dispose(); $bitmap.Dispose() }
     }

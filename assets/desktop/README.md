@@ -3,11 +3,13 @@
 A White House mission-patch badge, with a right-facing rocket, navy field, ivory building, red fins and gold stars.
 
 - `rocket-run.png`: original generated logo, with transparency.
-- `rocket-run.ico`: Windows icon containing 16, 24, 32, 48, 64, 128 and 256 pixel frames.
+- `rocket-run.ico`: Windows icon containing classic 32-bit DIB frames at 16, 24, 32, 48, 64 and 128 pixels, plus a 256-pixel PNG frame.
 - `../../scripts/install-desktop-shortcut.ps1`: installs a Rocket Run desktop shortcut pointing to the public game. The icon is copied to the current user's local application data so it continues working if the project folder moves. Existing unrelated shortcuts are preserved.
 - `../../scripts/create-desktop-icon.ps1`: converts the original PNG into the Windows icon container, without changing the logo design.
 
 Created with the built-in image generation tool. The square PNG is the original output; Windows icon frames are resized format conversions.
+
+The installer uses a content-specific icon filename and refreshes the shortcut's desktop entry to prevent a stale cached icon from remaining visible. The `.ico` file is intended for Windows shortcuts; use the `.png` file when viewing or sharing the logo as an ordinary image.
 
 ## Generation prompt
 
