@@ -15,6 +15,10 @@ A horizontal, one-button desert runner inspired by the Chrome offline dinosaur g
 - Phone menus scroll normally, map buttons have larger tap targets, and landscape play fits around browser bars and screen cutouts. Rotate at any time; the run stays intact.
 - A built-in pixel crew lets you launch even while the full artwork is loading. If that download fails, use **Retry artwork** in the menu.
 
+## Desktop shortcut
+
+On Windows, run `scripts/install-desktop-shortcut.ps1` to add **Rocket Run** to your desktop. It opens the public game in your default browser and uses the included White House rocket badge. Logo files and the generation prompt are in `assets/desktop/README.md`.
+
 ## Five selectable sectors
 
 | Sector | Background references | Four themed obstacles |
