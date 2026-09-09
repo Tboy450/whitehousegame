@@ -25,7 +25,9 @@ A horizontal, one-button desert runner inspired by the Chrome offline dinosaur g
 | Lockheed Martin / Skunk Works | Parked jets, hangars, control tower, spinning engine test rig, secret parking | Tool chest, jet engine, radar cart, equipment cart |
 | SpaceX / Starbase | Coastal horizon, Starfactory, boosters, catch tower, crane, tanks, rapid-unscheduled-parking sign | Booster section, fuel tank, rocket engine, robot cart |
 
-Choose a starting sector in the menu. Scenery advances every 600 points and keeps cycling through all five, including after difficulty caps at level 10. A progress indicator shows the next sector. Incoming obstacles keep their original appearance during a transition; new obstacles use the new sector's set. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
+Choose a starting sector in the menu. Every 600 points queues the next sector, cycling through all five even after difficulty caps at level 10. New obstacles stop spawning while the current ones clear and the rocket finishes its jump. The scenery then dissolves over 2.2 seconds, followed by a 0.8-second arrival breather. Spawning resumes after another half second, with new hazards entering from the far edge. Flight and scoring continue throughout; pausing freezes the transition too.
+
+The route indicator shows clearing, travel and arrival status. The welcome caption appears only once the obstacle lane is clear. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
 
 These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims. All backgrounds and obstacles are original canvas pixel art, and none of the background props have collisions.
 
@@ -58,7 +60,7 @@ The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
 ## Validation
 
-Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, stable varied scenery, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage and image failures, independent visitors, phone-sized canvas changes, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Controller tests are not real-browser visual or accessibility testing.
+Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, stable varied scenery, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage and image failures, independent visitors, phone-sized canvas changes, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Transition checks cover waiting for obstacles and landing, gradual compositing, pause/resize during a fade, and safe hazard resumption on every map at both minimum and maximum speed. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

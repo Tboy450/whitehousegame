@@ -11,9 +11,9 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
   const nodes = new Map(), frameQueue=[], windowEvents={}, documentEvents={}, store={};
   const ctx = new Proxy({}, {get:(object,key)=>object[key] ?? (()=>{}),set:(object,key,value)=>(object[key]=value,true)});
   let time=0, imageDraws=0, activeElement, image, onResize;
-  const transforms=[];
+  const transforms=[],composites=[];
   ctx.scale=(...args)=>{assert.ok(args.every(Number.isFinite));transforms.push(args);};
-  ctx.drawImage=()=>imageDraws++;
+  ctx.drawImage=source=>{imageDraws++;if(source?.tagName==='CANVAS')composites.push({alpha:ctx.globalAlpha,width:source.width,height:source.height});};
   function element(id='',tag='DIV') {
     return {id,tagName:tag,hidden:false,disabled:false,inert:false,textContent:'',innerHTML:'',className:'',dataset:{},style:{},attributes:{},events:{},children:[],
       addEventListener(type,listener){(this.events[type] ||= []).push(listener);},
@@ -38,7 +38,7 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
     for(const listener of (target===window?windowEvents:target===document?documentEvents:target.events)[type]||[])listener(event);
   }
   function frames(count) {for(let i=0;i<count;i++){time+=1000/60;assert.equal(frameQueue.length,1,'exactly one animation loop');frameQueue.shift()(time);}}
-  return {nodes,window,document,dispatch,frames,store,frameQueue,transforms,resize(next){rect=next;onResize();},loadImage(){image.onload();},get imageDraws(){return imageDraws;}};
+  return {nodes,window,document,dispatch,frames,store,frameQueue,transforms,composites,resize(next){rect=next;onResize();},loadImage(){image.onload();},get imageDraws(){return imageDraws;}};
 }
 
 test('menu, both scenes, playing, pause, resume, and repeated restarts use one animation loop',()=>{
@@ -128,14 +128,29 @@ test('all five sectors render, select exclusively, and remain selected on launch
   assert.equal(app.nodes.get('gameContainer').dataset.scene,'spacex');
 });
 
-test('level advancement rotates sector scenery and announces the change',()=>{
+test('sector arrival fades scenery gradually, pauses cleanly and keeps its announcement readable',()=>{
   let runner;
   class ControlledRunner extends core.Runner {constructor(){super();runner=this;}}
   const app=setup({engine:{...core,Runner:ControlledRunner}});
   app.dispatch(app.nodes.get('startButton'),'click');runner.spawnIn=Infinity;runner.distance=7199;
   app.frames(3);
-  assert.equal(app.nodes.get('gameContainer').dataset.scene,'mars');
+  assert.equal(app.nodes.get('gameContainer').dataset.scene,'moon');
   assert.match(app.nodes.get('milestone').textContent,/MARS/);
+  assert.equal(app.nodes.get('gameContainer').dataset.transition,'crossfade');
+  assert.ok(app.composites.at(-1).alpha<.05);
+  app.frames(70);assert.equal(app.nodes.get('gameContainer').dataset.scene,'mars');
+  const alpha=app.composites.at(-1).alpha;assert.ok(alpha>.5&&alpha<.8);
+  app.dispatch(app.nodes.get('pauseButton'),'click');app.frames(90);
+  assert.equal(app.composites.at(-1).alpha,alpha);
+  app.resize({width:370,height:366});app.frames(1);
+  assert.equal(app.composites.at(-1).width,370);assert.equal(app.composites.at(-1).height,366);
+  app.dispatch(app.nodes.get('resumeButton'),'click');app.frames(65);
+  assert.equal(app.nodes.get('gameContainer').dataset.transition,'settling');
+  app.frames(65);assert.equal(app.nodes.get('gameContainer').dataset.transition,'');
+  assert.equal(app.nodes.get('milestone').textContent,'');
+  assert.equal(app.nodes.get('nextSector').textContent,'NEXT: AREA 51');
+  const mixed=app.composites.filter(c=>c.alpha>.01&&c.alpha<.99);
+  assert.ok(mixed.length>60,'crossfade must be gradual, not a one-frame replacement');
 });
 
 test('each map launches with matching hazards and a themed crash message',()=>{
@@ -156,8 +171,13 @@ test('the route indicator reflects progress, the chosen start, and an endless se
   app.dispatch(get('spacexButton'),'click');assert.equal(get('nextSector').textContent,'NEXT: MOON');
   app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;runner.distance=3599;
   app.frames(3);assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])>=300);
-  runner.score=2999;runner.level=10;runner.distance=35999;app.frames(3);
+  runner.completedSectors=4;runner.score=2999;runner.level=10;runner.distance=35999;app.frames(3);
+  assert.equal(get('gameContainer').dataset.scene,'lockheed');
+  assert.equal(get('nextSector').textContent,'ARRIVING: STARBASE');
+  assert.equal(get('routeProgress').attributes['aria-valuenow'],'600');
+  app.frames(140);
   assert.equal(get('gameContainer').dataset.scene,'spacex');
-  assert.match(get('milestone').textContent,/STARBASE/);assert.equal(get('nextSector').textContent,'NEXT: MOON');
-  assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<10);
+  assert.match(get('milestone').textContent,/STARBASE/);
+  app.frames(60);assert.equal(get('nextSector').textContent,'NEXT: MOON');
+  assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<150);
 });

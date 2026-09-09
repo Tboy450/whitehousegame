@@ -14,8 +14,11 @@
   let shownHUD = '';
   const { Art, SCENES: scenes } = window.RocketArtwork;
   const art = new Art(ctx);
+  const transitionCanvas = document.createElement('canvas');
+  const transitionContext = transitionCanvas.getContext('2d');
+  const transitionArt = new Art(transitionContext);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
-  const currentSceneIndex = () => game.sectorIndex;
+  const currentSceneIndex = () => game.transitionProgress >= .5 ? game.transition.to : game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
   const activeJumpInputs = new Set();
   try { best = Math.max(0, Math.floor(Number(localStorage.getItem('trumpElonHighScore')) || 0)); } catch (_) {}
@@ -60,6 +63,7 @@
     } catch (_) { /* Sound is optional; unsupported audio must not stop the run. */ }
   }
   function setState(next) {
+    shownHUD = '';
     state = next; $('gameContainer').className = 'game-shell is-' + state;
     $('startScreen').hidden = state !== 'menu'; $('crewLabel').hidden = state !== 'menu';
     $('scenePicker').hidden = state !== 'menu';
@@ -74,7 +78,8 @@
   }
   function updateHUD() {
     // Avoid rewriting score, progress and accessibility attributes on every paint.
-    const hudKey = [state,game.score,best,game.level,selectedScene,game.sectorIndex,Math.round(game.speed)].join(':');
+    const phase = game.transition?.phase || '';
+    const hudKey = [state,game.score,best,game.level,selectedScene,currentSceneIndex(),phase,Math.round(game.speed)].join(':');
     if (hudKey === shownHUD) return;
     shownHUD = hudKey;
     $('score').textContent = pad(game.score); $('highScore').textContent = pad(best);
@@ -87,13 +92,16 @@
       $('sectorLabel').replaceChildren(document.createTextNode(scene.title), Object.assign(document.createElement('small'), {textContent:scene.joke}));
     }
     $('speedLabel').textContent = state === 'menu' ? 'BOUND FOR SOMEWHERE ↗' : Math.round(game.speed / RULES.initialSpeed * 100) + '% CRUISING SPEED →';
-    const routePoint = state === 'menu' ? 0 : game.score % 600;
-    const destination = ['MOON','MARS','AREA 51','SKUNK WORKS','STARBASE'][(nextScene + 1) % scenes.length];
-    $('nextSector').textContent = 'NEXT: ' + destination;
-    $('routeRemaining').textContent = (600 - routePoint) + ' PTS';
+    const routePoint = state === 'menu' ? 0 : phase ? 600 : Math.min(600, Math.max(0, game.score - game.completedSectors * 600));
+    const destination = ['MOON','MARS','AREA 51','SKUNK WORKS','STARBASE'][state === 'menu' ? (selectedScene + 1) % scenes.length : game.transition?.to ?? (game.sectorIndex + 1) % scenes.length];
+    const arriving = state !== 'menu' && phase;
+    $('gameContainer').dataset.transition = arriving || '';
+    if (state === 'playing') $('flightStatus').textContent = {clearing:'SECTOR AHEAD',crossfade:'SCENERY CHANGE',settling:'AIRSPACE CLEAR'}[phase] || 'FLIGHT IN PROGRESS';
+    $('nextSector').textContent = (arriving ? 'ARRIVING: ' : 'NEXT: ') + destination;
+    $('routeRemaining').textContent = arriving ? {clearing:'CLEARING',crossfade:'EN ROUTE',settling:'ARRIVED'}[phase] : (600 - routePoint) + ' PTS';
     $('routeFill').style.width = (routePoint / 6) + '%';
     $('routeProgress').setAttribute('aria-valuenow', String(routePoint));
-    $('routeProgress').setAttribute('aria-valuetext', (600 - routePoint) + ' points to ' + destination);
+    $('routeProgress').setAttribute('aria-valuetext', arriving ? 'Arriving at ' + destination + '. ' + (phase === 'clearing' ? 'Clear the last obstacles.' : 'Airspace clear.') : (600 - routePoint) + ' points to ' + destination);
   }
   function start() {
     game.start(selectedScene); activeJumpInputs.clear(); particles = []; scorePopups = []; particleClock = 0;
@@ -189,8 +197,19 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') pause(); });
 
   function background(viewWidth,viewHeight,ground) {
-    art.background({index:state === 'menu' ? selectedScene : game.sectorIndex,
-      width:viewWidth,height:viewHeight,ground,distance:sceneDistance,time:sceneTime,reduced:reducedMotion});
+    const scene = {index:state === 'menu' ? selectedScene : game.sectorIndex,
+      width:viewWidth,height:viewHeight,ground,distance:sceneDistance,time:sceneTime,reduced:reducedMotion};
+    art.background(scene);
+    if (state === 'menu' || game.transition?.phase !== 'crossfade') return;
+    // Composite a complete scene: individual art helpers manage their own opacity.
+    if (transitionCanvas.width !== canvas.width || transitionCanvas.height !== canvas.height) {
+      transitionCanvas.width = canvas.width; transitionCanvas.height = canvas.height;
+    }
+    transitionContext.setTransform(canvas.width/viewWidth,0,0,canvas.height/viewHeight,0,0);
+    transitionArt.background({...scene,index:game.transition.to});
+    const t = game.transitionProgress;
+    ctx.save();ctx.globalAlpha = t*t*(3-2*t);
+    ctx.drawImage(transitionCanvas,0,0,viewWidth,viewHeight);ctx.restore();
   }
   function drawCrew(x,bottom,w,bob=0) {
     if(!ready){ art.reserveCrew(x,bottom+bob,w); return; }
@@ -246,21 +265,26 @@
       while(accumulator>=RULES.step){
         const events=game.update(RULES.step);accumulator-=RULES.step;
         for(const event of events){
-          if(event!=='level'||!events.includes('sector')) tone(event==='sector'?'level':event);
+          if(['land','jump','pass','crash'].includes(event)) tone(event);
+          if(event==='transition'||(event==='level'&&!game.transition)) tone('level');
           if(event==='land')burst(game.player.x+70,RULES.ground-3,5,'#aeb497');
           if(event==='pass'){
             scorePopups.push({x:game.player.x+100,y:game.player.y-151,life:.8,text:game.passed%5===0?game.passed+' CLEARED!':'+10'});
             burst(game.player.x+40,game.player.y-50,4,currentScene().id==='area51'?'#c5df9e':'#d99648');
           }
           if(event==='level'){
-            if(!events.includes('sector')){
+            if(!game.transition){
               milestoneUntil=sceneTime+1.8;
               $('milestone').textContent='LEVEL '+String(game.level).padStart(2,'0')+' — KEEP FLYING';
             }
           }
+          if(event==='approach') $('milestone').textContent='';
+          if(event==='transition'){
+            milestoneUntil=Infinity;
+            $('milestone').textContent=scenes[game.transition.to].announcement+'\nAIRSPACE CLEAR — ENJOY THE VIEW';
+          }
           if(event==='sector'){
-            milestoneUntil=sceneTime+3;
-            $('milestone').textContent=currentScene().announcement;
+            milestoneUntil=sceneTime+RULES.sectorRest;
           }
           if(event==='crash'){endRun();accumulator=0;break;}
         }

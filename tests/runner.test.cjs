@@ -95,13 +95,55 @@ test('each starting map spawns its own obstacles, including all four designs aft
   }
 });
 
-test('transition changes newly spawned hazards without transforming hazards already on screen', () => {
-  const game=new Runner(()=>0);game.start(4);game.time=9;game.spawn();
-  const incoming=JSON.stringify(game.obstacles[0]);
-  game.score=600;game.level=3;game.spawn();
-  assert.equal(game.sectorId,'moon');assert.equal(game.obstacles[1].sector,'moon');
-  assert.equal(JSON.stringify(game.obstacles[0]),incoming);
-  game.start(2);assert.equal(game.sectorId,'area51');assert.equal(game.obstacles.length,0);
+test('a threshold waits for old obstacles and a landing, without spawning or cancelling a jump', () => {
+  const game=new Runner(()=>0);game.start(4);game.distance=7199;game.score=599;game.spawnIn=0;
+  const kind=SECTOR_OBSTACLES.spacex[0];
+  const old={...kind,sector:'spacex',x:50,y:RULES.ground-kind.height,passed:true};
+  game.obstacles=[old];game.pressJump();
+  const events=game.update(RULES.step);
+  assert.ok(events.includes('approach'));assert.ok(!events.includes('transition'));
+  assert.equal(game.transition.phase,'clearing');assert.equal(game.sectorId,'spacex');
+  assert.equal(game.obstacles.length,1);assert.equal(game.obstacles[0],old);assert.equal(old.sector,'spacex');
+  assert.ok(game.player.airborne);assert.ok(game.player.vy<0);
+  advance(game,.5);assert.equal(game.obstacles.length,0);assert.ok(game.player.airborne);
+  assert.equal(game.transition.phase,'clearing');
+  assert.ok(advance(game,.5).includes('transition'));assert.equal(game.transition.phase,'crossfade');
+  assert.equal(game.player.airborne,false);assert.equal(game.sectorId,'spacex');
+});
+
+test('each map gets a full fade and a clear arrival before its new hazards return at either speed',()=>{
+  for(let sector=0;sector<5;sector++)for(const speed of [RULES.initialSpeed,RULES.maxSpeed]){
+    const game=new Runner(()=>0);game.start(sector);game.time=(speed-RULES.initialSpeed)/2.3;game.speed=speed;
+    game.distance=7199;game.score=599;game.spawnIn=0;
+    const events=game.update(RULES.step);assert.ok(events.includes('transition'));
+    assert.equal(game.sectorIndex,sector);assert.equal(game.transitionProgress,0);
+    advance(game,RULES.sectorFade-.1);assert.equal(game.sectorIndex,sector);assert.equal(game.obstacles.length,0);
+    game.spawn();assert.equal(game.obstacles.length,0,'even an explicit spawn cannot interrupt a fade');
+    const arrival=advance(game,.12);assert.equal(arrival.filter(e=>e==='sector').length,1);
+    assert.equal(game.sectorIndex,(sector+1)%5);assert.equal(game.transition.phase,'settling');
+    advance(game,RULES.sectorRest-.05);assert.equal(game.obstacles.length,0);
+    advance(game,.05);assert.equal(game.transition,null);assert.equal(game.obstacles.length,0);
+    advance(game,RULES.sectorSpawnDelay-.05);assert.equal(game.obstacles.length,0);
+    advance(game,.1);assert.equal(game.obstacles.length,1);assert.equal(game.obstacles[0].sector,SECTOR_IDS[(sector+1)%5]);
+    assert.ok(game.obstacles[0].x>RULES.width-80,'new hazards enter from the far edge');
+  }
+});
+
+test('all transition phases freeze on pause and reset on a new launch',()=>{
+  for(const phase of ['clearing','crossfade','settling']){
+    const game=new Runner();game.start(3);game.transition={from:3,to:4,phase,elapsed:.4};
+    game.state='paused';const snapshot=JSON.stringify(game);advance(game,5);assert.equal(JSON.stringify(game),snapshot);
+    game.start(2);assert.equal(game.transition,null);assert.equal(game.completedSectors,0);assert.equal(game.sectorId,'area51');
+  }
+});
+
+test('old hazards remain dangerous while the next sector is queued',()=>{
+  const game=new Runner(()=>0);game.start();game.spawn();game.spawnIn=0;
+  game.distance=7199;game.score=599;game.update(RULES.step);
+  assert.equal(game.transition.phase,'clearing');
+  game.obstacles[0].x=game.player.x+65;
+  assert.ok(game.update(RULES.step).includes('crash'));assert.equal(game.sectorId,'moon');
+  assert.equal(game.transition.phase,'clearing');assert.equal(game.collision.sector,'moon');
 });
 
 test('collisions report the actual themed obstacle for the result message', () => {
@@ -114,11 +156,11 @@ test('collisions report the actual themed obstacle for the result message', () =
 
 test('scenery keeps cycling after difficulty reaches its cap', () => {
   const game=new Runner();game.start();game.spawnIn=Infinity;
-  game.level=10;game.score=2999;game.distance=35999;
+  game.level=10;game.completedSectors=4;game.score=2999;game.distance=35999;
   assert.equal(game.sectorId,'spacex');
-  const events=advance(game,.1);
+  const events=advance(game,RULES.sectorFade+RULES.sectorRest+.1);
   assert.equal(game.level,10);assert.equal(game.sectorId,'moon');
   assert.equal(events.filter(event=>event==='sector').length,1);
   assert.equal(events.filter(event=>event==='level').length,0);
-  game.distance=43199;game.score=3599;advance(game,.1);assert.equal(game.sectorId,'mars');
+  game.distance=43199;game.score=3599;advance(game,RULES.sectorFade+.1);assert.equal(game.sectorId,'mars');
 });
