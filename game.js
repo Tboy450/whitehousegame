@@ -14,9 +14,15 @@
   let shownHUD = '';
   const { Art, SCENES: scenes } = window.RocketArtwork;
   const art = new Art(ctx);
+  const {Scene3D,VIEWS}=window.Rocket3D;
+  const scene3D=new Scene3D(ctx);
+  let view='angle',cameraBlend=0;
+  try{const saved=localStorage.getItem('rocketRunView');if(VIEWS.some(v=>v.id===saved))view=saved;}catch(_){}
+  cameraBlend=view==='chase'?1:0;
   const transitionCanvas = document.createElement('canvas');
   const transitionContext = transitionCanvas.getContext('2d');
   const transitionArt = new Art(transitionContext);
+  const transition3D = new Scene3D(transitionContext);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
   const currentSceneIndex = () => game.transitionProgress >= .5 ? game.transition.to : game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
@@ -81,11 +87,12 @@
     const phase = game.transition?.phase || '';
     const routeLength = Math.round(game.sectorLength / 12);
     const routePoint = state === 'menu' ? 0 : phase ? routeLength : Math.floor(game.sectorProgress * routeLength);
-    const hudKey = [state,game.score,best,game.circuit,selectedScene,currentSceneIndex(),phase,routePoint].join(':');
+    const hudKey = [state,game.score,best,game.level,selectedScene,currentSceneIndex(),phase,routePoint].join(':');
     if (hudKey === shownHUD) return;
     shownHUD = hudKey;
     $('score').textContent = pad(game.score); $('highScore').textContent = pad(best);
-    $('circuit').textContent = 'CIRCUIT ' + String(game.circuit).padStart(2, '0');
+    $('circuit').textContent = 'LEVEL ' + String(game.level).padStart(2, '0');
+    $('circuit').setAttribute('title','Circuit '+game.circuit+' · map '+((game.completedSectors%scenes.length)+1)+' of 5');
     const nextScene = state === 'menu' ? selectedScene : currentSceneIndex();
     if (nextScene !== shownScene) {
       shownScene = nextScene;
@@ -134,7 +141,7 @@
     $('resultEyebrow').textContent = record ? 'A NEW PERSONAL BEST' : 'A SLIGHT DETOUR';
     const crashScene = scenes.find(scene => scene.id === game.collision?.sector) || currentScene();
     $('resultMessage').textContent = crashScene.crashes[game.passed % crashScene.crashes.length];
-    $('finalScore').textContent = pad(game.score); $('finalBest').textContent = pad(best); $('circuitReached').textContent = game.circuit;
+    $('finalScore').textContent = pad(game.score); $('finalBest').textContent = pad(best); $('circuitReached').textContent = game.level;
     $('milestone').textContent = ''; setState('over'); updateHUD();
     burst(game.player.x + 160, game.player.y - 25, 22, '#e9502f');
     $('retryButton').focus({preventScroll:true});
@@ -154,6 +161,23 @@
   $('pauseButton').addEventListener('click', pause);
   $('menuButton').addEventListener('click', menu);
   $('pauseMenuButton').addEventListener('click', menu);
+  function showView(){
+    const label=VIEWS.find(v=>v.id===view).label;
+    $('gameContainer').dataset.view=view;
+    $('viewButton').textContent='VIEW: '+label;
+    $('menuViewButton').textContent='VIEW: '+label+' · C TO CHANGE';
+    $('pauseViewButton').textContent='VIEW: '+label;
+    for(const id of ['viewButton','menuViewButton','pauseViewButton'])$(id).setAttribute('aria-label','Current view: '+label+'. Change camera perspective.');
+  }
+  function changeView(){
+    view=VIEWS[(VIEWS.findIndex(v=>v.id===view)+1)%VIEWS.length].id;
+    if(reducedMotion||state!=='playing'||view==='classic')cameraBlend=view==='chase'?1:0;
+    try{localStorage.setItem('rocketRunView',view);}catch(_){}
+    showView();
+    if(state==='playing')stage.focus({preventScroll:true});
+  }
+  for(const id of ['viewButton','menuViewButton','pauseViewButton'])$(id).addEventListener('click',changeView);
+  showView();
   function chooseScene(index) {
     if (state !== 'menu') return;
     selectedScene = index;
@@ -167,6 +191,9 @@
     $('soundButton').setAttribute('aria-label', sound ? 'Turn sound off' : 'Turn sound on'); tone('pass');
   });
   window.addEventListener('keydown', event => {
+    if(event.code==='KeyC'&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.target.closest?.('input, textarea, select')){
+      event.preventDefault();if(!event.repeat)changeView();return;
+    }
     const isJump = ['Space', 'ArrowUp', 'KeyW'].includes(event.code);
     if (event.code === 'Tab' && (state === 'paused' || state === 'over')) {
       const panel = state === 'paused' ? $('pauseScreen') : $('gameOver');
@@ -238,6 +265,25 @@
       for(let i=0;i<3;i++){const x=rocketX-15-(i%2)*18;const y=rocketBottom-rocketWidth*.19-i*15;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-20-i*8,y);ctx.stroke();}
       return;
     }
+    if(view!=='classic'){
+      const viewWidth=Math.max(width<620?800:1200,width*390/height),scale=width/viewWidth;
+      const viewHeight=height/scale;
+      ctx.save();ctx.scale(scale,scale);
+      const scene={width:viewWidth,height:viewHeight,palette:scenes[game.sectorIndex],game,
+        distance:sceneDistance,time:sceneTime,blend:cameraBlend,reduced:reducedMotion};
+      scene3D.render(scene);
+      if(game.transition?.phase==='crossfade'){
+        if(transitionCanvas.width!==canvas.width||transitionCanvas.height!==canvas.height){transitionCanvas.width=canvas.width;transitionCanvas.height=canvas.height;}
+        transitionContext.setTransform(canvas.width/viewWidth,0,0,canvas.height/viewHeight,0,0);
+        transition3D.render({...scene,palette:scenes[game.transition.to]});
+        const t=game.transitionProgress;ctx.globalAlpha=t*t*(3-2*t);
+        ctx.drawImage(transitionCanvas,0,0,viewWidth,viewHeight);ctx.globalAlpha=1;
+      }
+      // Feedback follows the projected crew instead of remaining at the 2D coordinates.
+      const marker=scene3D.camera.project([0,RULES.ground-game.player.y+135,0]);
+      if(marker&&scorePopups.length){ctx.fillStyle=currentScene().id==='area51'?'#d9eab2':'#9c3f27';ctx.font='bold 17px "Courier New",monospace';ctx.textAlign='center';ctx.fillText(scorePopups.at(-1).text,...marker.point);}
+      ctx.restore();return;
+    }
     // Short landscape viewports must still show the full jump arc and both riders.
     const viewWidth=Math.max(width<620?800:1200,width*390/height), scale=width/viewWidth;
     const viewHeight=height/scale, ground=viewHeight-85;
@@ -261,6 +307,10 @@
   function frame(timestamp) {
     const delta=lastTime===null?0:Math.min((timestamp-lastTime)/1000,.05);lastTime=timestamp;
     if(state!=='paused'){sceneTime+=delta;}
+    if(state==='playing'&&view!=='classic'){
+      const target=view==='chase'?1:0;
+      cameraBlend=reducedMotion?target:cameraBlend+(target-cameraBlend)*Math.min(1,delta*7);
+    }
     if(state==='menu'&&!reducedMotion)sceneDistance+=delta*28;
     if(state==='playing'){
       accumulator+=delta;
@@ -268,7 +318,7 @@
         const events=game.update(RULES.step);accumulator-=RULES.step;
         for(const event of events){
           if(['land','jump','pass','crash'].includes(event)) tone(event);
-          if(event==='transition'||event==='circuit') tone('level');
+          if(event==='transition'||event==='level') tone('level');
           if(event==='land')burst(game.player.x+70,RULES.ground-3,5,'#aeb497');
           if(event==='pass'){
             scorePopups.push({x:game.player.x+100,y:game.player.y-151,life:.8,text:game.passed%5===0?game.passed+' CLEARED!':'+10'});
@@ -278,8 +328,8 @@
           if(event==='transition'){
             milestoneUntil=Infinity;
             $('milestone').textContent=game.transition.completesCircuit
-              ? 'CIRCUIT '+String(game.circuit).padStart(2,'0')+' COMPLETE\nSPEED +15% · LONGER SECTORS & GAPS'
-              : scenes[game.transition.to].announcement+'\nAIRSPACE CLEAR — ENJOY THE VIEW';
+              ? 'CIRCUIT '+String(game.circuit).padStart(2,'0')+' COMPLETE\nNEXT LEVEL: +15% SPEED · LONGER GAPS'
+              : scenes[game.transition.to].announcement+'\nNEXT LEVEL: +15% SPEED · LONGER GAPS';
           }
           if(event==='sector'){
             milestoneUntil=sceneTime+RULES.sectorRest;

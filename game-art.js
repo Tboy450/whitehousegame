@@ -24,7 +24,7 @@
     'red_basalt','sample_canister','mars_rover','relay_mast',
     'secret_crate','parked_ufo','alien','checkpoint',
     'tool_chest','jet_engine','radar_cart','equipment_cart',
-    'booster_section','fuel_tank','rocket_engine','robot_cart'
+    'booster_section','fuel_tank','rocket_engine','robot_cart','low_jet','low_ufo'
   ]);
 
   const LANDMARK_WIDTHS = {"moon":[72,205,90,142,140,153],"mars":[180,290,78,96,177,110],"area51":[192,160,261,119,177,164],"lockheed":[248,224,71,208,190,78],"spacex":[333,222,132,189,178,25]};
@@ -465,6 +465,10 @@
     }
 
     obstacle(o,time=0) {
+      if(o.altitude){
+        this.ctx.save();this.ctx.globalAlpha=.2;
+        this.rect(o.x+8,o.y+o.height+o.altitude-2,o.width-16,3,'#29373d');this.ctx.restore();
+      }
       const c=this.ctx;c.save();c.translate(Math.round(o.x),Math.round(o.y));c.scale(o.width/64,o.height/64);
       // All art fits a 64x64 local sprite. No bounce or rotation changes its collision position.
       const ink=o.sector==='area51'?'#c5dcaf':'#2c383c';
@@ -477,6 +481,16 @@
       };
       const outlineBox=(x,y,w,h,fill)=>{r(x,y,w,h,ink);r(x+3,y+3,w-6,h-6,fill);};
       switch(o.type){
+        case 'low_jet':
+          p([[1,36],[23,22],[41,22],[50,5],[57,5],[55,28],[63,30],[59,46],[39,48],[27,61],[18,60],[25,44]],ink);
+          p([[4,35],[25,27],[52,28],[57,39],[36,42],[23,53],[29,38]],steel);
+          r(24,23,16,9,panel);r(27,24,8,4,'#b9e5e6');r(53,30,7,10,shade);
+          r(60,32,4,6,Math.sin(time*22)>0?'#ffd77a':'#e9743d');break;
+        case 'low_ufo':
+          p([[19,9],[26,2],[41,2],[48,12],[49,24],[61,33],[63,45],[53,58],[10,58],[1,45],[3,33],[17,24]],ink);
+          p([[20,14],[28,6],[39,6],[44,14],[44,26],[20,26]],'#99d8c1');r(25,10,7,10,'#d9f7d2');
+          p([[5,35],[18,26],[46,26],[59,35],[57,45],[49,52],[14,52],[6,44]],steel);
+          r(9,36,46,6,shade);for(let i=0;i<4;i++)r(12+i*11,46,6,6,(i+Math.floor(time*6))%2?'#b9ed83':'#55766a');break;
         case 'moon_rock': case 'red_basalt': {
           const red=o.type==='red_basalt',base=red?'#b6653f':'#949b86',top=red?'#e5ac72':'#c4c9b1',shadow=red?'#7e432f':'#636f65';
           p([[1,62],[1,33],[10,33],[10,17],[23,17],[23,5],[45,5],[45,13],[55,13],[55,36],[63,36],[63,62]],ink);

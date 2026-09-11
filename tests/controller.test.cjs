@@ -5,10 +5,11 @@ const vm = require('node:vm');
 const path = require('node:path');
 const core = require('../game-core.js');
 const artwork = require('../game-art.js');
+const threeD = require('../game-3d.js');
 
 // Exercise real controller events with a minimal DOM/canvas adapter, without a browser dependency.
-function setup({ storageFails=false, imageFails=false, imagePending=false, engine=core, rect={width:1200,height:570} }={}) {
-  const nodes = new Map(), frameQueue=[], windowEvents={}, documentEvents={}, store={};
+function setup({ storageFails=false, imageFails=false, imagePending=false, engine=core, initialView='classic', reducedMotion=false, rect={width:1200,height:570} }={}) {
+  const nodes = new Map(), frameQueue=[], windowEvents={}, documentEvents={}, store={rocketRunView:initialView};
   const ctx = new Proxy({}, {get:(object,key)=>object[key] ?? (()=>{}),set:(object,key,value)=>(object[key]=value,true)});
   let time=0, imageDraws=0, activeElement, image, onResize;
   const transforms=[],composites=[];
@@ -22,14 +23,14 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
       getBoundingClientRect(){return rect;},getContext(){return ctx;},
       focus(){activeElement=this;},setPointerCapture(){},
       closest(selector){return this.tagName==='BUTTON'&&selector.includes('button')?this:null;},
-      querySelectorAll(){return id==='pauseScreen'?[nodes.get('resumeButton'),nodes.get('pauseMenuButton')]:[nodes.get('retryButton'),nodes.get('menuButton')];}
+      querySelectorAll(){return id==='pauseScreen'?[nodes.get('resumeButton'),nodes.get('pauseViewButton'),nodes.get('pauseMenuButton')]:[nodes.get('retryButton'),nodes.get('menuButton')];}
     };
   }
   const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
   for(const match of html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)) nodes.set(match[2],element(match[2],match[1].toUpperCase()));
   const document={getElementById:id=>{assert.ok(nodes.has(id),'Missing HTML id: '+id);return nodes.get(id);},createElement:tag=>element('',tag.toUpperCase()),createTextNode:text=>({textContent:text}),
     addEventListener:(type,listener)=>(documentEvents[type] ||= []).push(listener),hidden:false,get activeElement(){return activeElement;}};
-  const window={RocketRunner:engine,RocketArtwork:artwork,devicePixelRatio:1,matchMedia:()=>({matches:false}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
+  const window={RocketRunner:engine,RocketArtwork:artwork,Rocket3D:threeD,devicePixelRatio:1,matchMedia:()=>({matches:reducedMotion}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
   const sandbox={window,document,performance:{now:()=>time},localStorage:{getItem:key=>{if(storageFails)throw Error('blocked');return store[key];},setItem:(key,value)=>{if(storageFails)throw Error('blocked');store[key]=value;}},
     Image:class{constructor(){image=this;}naturalWidth=1536;naturalHeight=1024;set src(_){if(!imagePending)imageFails?this.onerror():this.onload();}},ResizeObserver:class{constructor(callback){onResize=callback;}observe(){onResize();}},requestAnimationFrame:callback=>frameQueue.push(callback),Math,Set,Number,String,Object,Date};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../game.js'),'utf8'),sandbox);
@@ -176,21 +177,61 @@ test('the route indicator, circuit announcement and results follow scaled distan
   runner.completedSectors=4;runner.distance=runner.sectorLength-1;app.frames(3);
   assert.equal(get('gameContainer').dataset.scene,'lockheed');
   assert.equal(get('nextSector').textContent,'ARRIVING: STARBASE');
-  assert.equal(get('routeProgress').attributes['aria-valuenow'],'600');
+  assert.equal(get('routeProgress').attributes['aria-valuenow'],String(Math.round(600*1.15**4)));
   assert.match(get('milestone').textContent,/CIRCUIT 01 COMPLETE/);
-  assert.match(get('milestone').textContent,/SPEED \+15%/);
-  assert.equal(get('circuit').textContent,'CIRCUIT 01');
+  assert.match(get('milestone').textContent,/\+15% SPEED/);
+  assert.equal(get('circuit').textContent,'LEVEL 05');
   app.frames(140);
   assert.equal(get('gameContainer').dataset.scene,'spacex');
-  assert.equal(get('circuit').textContent,'CIRCUIT 02');
-  assert.match(get('speedLabel').textContent,/115%/);
+  assert.equal(get('circuit').textContent,'LEVEL 06');
+  assert.match(get('speedLabel').textContent,/201%/);
   app.frames(60);assert.equal(get('nextSector').textContent,'NEXT: MOON');
-  assert.equal(get('routeProgress').attributes['aria-valuemax'],'690');
+  assert.equal(get('routeProgress').attributes['aria-valuemax'],String(Math.round(600*1.15**5)));
   assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<150);
   runner.spawn();runner.obstacles[0].x=runner.player.x+65;app.frames(3);
-  assert.equal(get('gameOver').hidden,false);assert.equal(get('circuitReached').textContent,2);
+  assert.equal(get('gameOver').hidden,false);assert.equal(get('circuitReached').textContent,6);
   app.dispatch(get('retryButton'),'click');
-  assert.equal(get('circuit').textContent,'CIRCUIT 01');
+  assert.equal(get('circuit').textContent,'LEVEL 01');
   assert.equal(get('routeProgress').attributes['aria-valuemax'],'600');
   assert.match(get('speedLabel').textContent,/100%/);
+});
+
+test('C and phone view buttons cycle all perspectives without changing a jump or restarting the run',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner{constructor(){super(()=>0);runner=this;}}
+  const app=setup({initialView:'angle',engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
+  assert.equal(get('gameContainer').dataset.view,'angle');
+  app.dispatch(get('menuViewButton'),'click');assert.equal(get('gameContainer').dataset.view,'chase');
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;
+  app.dispatch(app.window,'keydown',{code:'Space'});app.frames(12);
+  for(const next of ['classic','angle','chase']){
+    const before=JSON.stringify(runner);
+    app.dispatch(app.window,'keydown',{code:'KeyC'});
+    assert.equal(get('gameContainer').dataset.view,next);assert.equal(JSON.stringify(runner),before);
+    app.dispatch(app.window,'keydown',{code:'KeyC',repeat:true});assert.equal(get('gameContainer').dataset.view,next);
+    app.frames(2);assert.ok(runner.player.airborne);assert.ok(runner.held);
+  }
+  assert.equal(app.store.rocketRunView,'chase');
+  app.dispatch(get('pauseButton'),'click');const paused=JSON.stringify(runner);
+  app.dispatch(get('pauseViewButton'),'click');app.frames(5);assert.equal(JSON.stringify(runner),paused);
+  app.dispatch(get('resumeButton'),'click');app.dispatch(get('viewButton'),'click');app.frames(4);
+  assert.equal(get('gameContainer').dataset.view,'angle');assert.equal(runner.state,'playing');
+  app.dispatch(app.window,'keyup',{code:'Space'});app.frames(70);assert.equal(runner.player.airborne,false);
+});
+
+test('3D scene fades survive camera changes, pausing and phone resizing with the same hazard-free transition',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner{constructor(){super();runner=this;}}
+  const app=setup({initialView:'angle',engine:{...core,Runner:ControlledRunner},reducedMotion:true}),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;runner.distance=runner.sectorLength-1;
+  app.frames(20);assert.equal(runner.transition.phase,'crossfade');
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(10);
+  assert.equal(get('gameContainer').dataset.view,'chase');assert.equal(runner.obstacles.length,0);
+  app.dispatch(get('pauseButton'),'click');const before=JSON.stringify(runner),alpha=app.composites.at(-1).alpha;
+  app.resize({width:370,height:366});app.frames(2);
+  assert.equal(JSON.stringify(runner),before);assert.equal(app.composites.at(-1).alpha,alpha);
+  assert.equal(app.composites.at(-1).width,370);
+  app.dispatch(get('resumeButton'),'click');app.frames(180);
+  assert.equal(runner.transition,null);assert.equal(runner.level,2);assert.equal(runner.speed,330*1.15);
+  assert.equal(get('circuit').textContent,'LEVEL 02');assert.equal(get('gameOver').hidden,true);
 });

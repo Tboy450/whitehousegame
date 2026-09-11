@@ -3,7 +3,7 @@
   'use strict';
   const RULES = Object.freeze({ width: 1200, height: 570, ground: 464, playerX: 154,
     playerWidth: 200, playerHeight: 112, gravity: 1850, jumpVelocity: -780,
-    initialSpeed: 330, circuitSpeedFactor: 1.15, sectorLength: 7200, step: 1 / 120,
+    initialSpeed: 330, levelSpeedFactor: 1.15, sectorLength: 7200, step: 1 / 120,
     sectorFade: 2.2, sectorRest: .8, sectorSpawnDelay: .5 });
   const SECTOR_IDS = Object.freeze(['moon', 'mars', 'area51', 'lockheed', 'spacex']);
   const SECTOR_OBSTACLES = Object.freeze({
@@ -41,9 +41,25 @@
   for (const list of Object.values(SECTOR_OBSTACLES)) {
     list.forEach(Object.freeze); Object.freeze(list);
   }
-  const OBSTACLES = Object.freeze(Object.values(SECTOR_OBSTACLES).flat());
+  const FLYING_OBSTACLES = Object.freeze([
+    Object.freeze({type:'low_jet',label:'Low-flying jet',width:70,height:25,altitude:25,flySpeed:1.18}),
+    Object.freeze({type:'low_ufo',label:'Low-flying UFO',width:58,height:27,altitude:27,flySpeed:1.1})
+  ]);
+  const SECTOR_FLYERS = Object.freeze({moon:[1],mars:[1],area51:[1,0],lockheed:[0],spacex:[0,1]});
+  const OBSTACLES = Object.freeze([...Object.values(SECTOR_OBSTACLES).flat(),...FLYING_OBSTACLES]);
   function intersects(a, b) {
     return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+  function sweptHit(a,b,dx,dy){
+    // Intersect the relative movement with both slabs so fast later levels cannot
+    // jump across a collider between fixed simulation steps.
+    let entry=0,exit=1;
+    for(const [pos,size,other,otherSize,delta] of [[a.x,a.width,b.x,b.width,dx],[a.y,a.height,b.y,b.height,dy]]){
+      if(!delta){if(pos>=other+otherSize||pos+size<=other)return false;continue;}
+      const near=(other-pos-size)/delta,far=(other+otherSize-pos)/delta;
+      entry=Math.max(entry,Math.min(near,far));exit=Math.min(exit,Math.max(near,far));
+    }
+    return entry<exit&&exit>0&&entry<1;
   }
   class Runner {
     constructor(random = Math.random) { this.random = random; this.reset(); }
@@ -63,7 +79,8 @@
     get sectorId() { return SECTOR_IDS[this.sectorIndex]; }
     get completedCircuits() { return Math.floor(this.completedSectors / SECTOR_IDS.length); }
     get circuit() { return this.completedCircuits + 1; }
-    get speedMultiplier() { return RULES.circuitSpeedFactor ** this.completedCircuits; }
+    get level() { return this.completedSectors + 1; }
+    get speedMultiplier() { return RULES.levelSpeedFactor ** this.completedSectors; }
     get speed() { return RULES.initialSpeed * this.speedMultiplier; }
     get sectorLength() { return RULES.sectorLength * this.speedMultiplier; }
     get sectorDistance() { return Math.max(0, this.distance - this.sectorStartDistance); }
@@ -90,13 +107,15 @@
     }
     spawn() {
       if (this.transition) return;
-      const choices = SECTOR_OBSTACLES[this.sectorId];
+      const choices = [...SECTOR_OBSTACLES[this.sectorId],...SECTOR_FLYERS[this.sectorId].map(i=>FLYING_OBSTACLES[i])];
       const available = this.time < 8 ? 2 : choices.length;
       const kind = choices[Math.min(available - 1, Math.floor(this.random() * available))];
       // Obstacles retain their original art when a sector changes while they are on screen.
       const front = RULES.playerX + 163;
-      const lead = (RULES.width + 35 - front) * this.speedMultiplier;
-      this.obstacles.push({ ...kind, sector: this.sectorId, x: front + lead, y: RULES.ground - kind.height, passed: false });
+      // Aircraft start farther away to compensate for their extra closing speed.
+      const lead = (RULES.width + 35 - front) * this.speedMultiplier * (kind.flySpeed || 1);
+      this.obstacles.push({ ...kind, sector: this.sectorId, x: front + lead,
+        y: RULES.ground - kind.height - (kind.altitude || 0), passed: false });
       // Constant scheduling time means the distance between hazards scales with speed,
       // including the body-width allowance. Jump/landing time stays unchanged.
       this.spawnIn = 1.45 + this.random() * .65 + (kind.width + 128) / RULES.initialSpeed;
@@ -106,6 +125,7 @@
       const events = [];
       this.time += dt; this.distance += this.speed * dt; this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
       const p = this.player;
+      const oldBodies=this.hitboxes(),oldY=p.y;
       if (p.airborne) {
         p.jumpTime += dt;
         if (!this.held && !p.cut && p.jumpTime >= .12 && p.vy < -310) { p.vy *= .55; p.cut = true; }
@@ -116,9 +136,11 @@
         }
       }
       for (const obstacle of this.obstacles) {
-        obstacle.x -= this.speed * dt;
+        const movement=this.speed*(obstacle.flySpeed||1)*dt;
+        const oldBox={x:obstacle.x+4,y:obstacle.y+4,width:obstacle.width-8,height:obstacle.height-4};
+        obstacle.x -= movement;
         const box = { x: obstacle.x + 4, y: obstacle.y + 4, width: obstacle.width - 8, height: obstacle.height - 4 };
-        if (this.hitboxes().some(body => intersects(body, box))) {
+        if (this.hitboxes().some(body => intersects(body, box))||oldBodies.some(body=>sweptHit(body,oldBox,movement,p.y-oldY))) {
           this.state = 'over'; this.collision = { type: obstacle.type, label: obstacle.label, sector: obstacle.sector };
           events.push('crash'); return events;
         }
@@ -141,7 +163,7 @@
         } else if (transition.phase === 'crossfade') {
           transition.elapsed += dt;
           if (transition.elapsed >= RULES.sectorFade) {
-            this.completedSectors++; transition.phase = 'settling'; transition.elapsed = 0; events.push('sector');
+            this.completedSectors++; transition.phase = 'settling'; transition.elapsed = 0; events.push('sector','level');
             if (transition.completesCircuit) events.push('circuit');
           }
         } else {
@@ -161,7 +183,7 @@
       return events;
     }
   }
-  const api = { Runner, RULES, OBSTACLES, SECTOR_IDS, SECTOR_OBSTACLES, intersects };
+  const api = { Runner, RULES, OBSTACLES, FLYING_OBSTACLES, SECTOR_FLYERS, SECTOR_IDS, SECTOR_OBSTACLES, intersects };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RocketRunner = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

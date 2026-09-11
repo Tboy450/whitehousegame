@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {Art,SCENES}=require('../game-art.js');
-const {Runner,SECTOR_IDS}=require('../game-core.js');
+const {Runner,SECTOR_IDS,OBSTACLES}=require('../game-core.js');
 
 function context() {
   const commands=[],labels=[];
@@ -22,13 +22,12 @@ function context() {
 
 test('every engine-spawned obstacle has valid, distinct foreground artwork',()=>{
   const signatures=new Set();
-  for(let scene=0;scene<5;scene++)for(const roll of [0,.26,.51,.99]){
-    const runner=new Runner(()=>roll);runner.start(scene);runner.time=9;runner.spawn();
-    const ctx=context(),art=new Art(ctx);art.obstacle(runner.obstacles[0],12.5);
+  for(const kind of OBSTACLES){
+    const ctx=context(),art=new Art(ctx);art.obstacle({...kind,sector:'moon',x:900,y:464-kind.height-(kind.altitude||0)},12.5);
     assert.equal(ctx.stack,0);assert.ok(ctx.commands.length>10);
     signatures.add(JSON.stringify(ctx.commands));
   }
-  assert.equal(signatures.size,20);
+  assert.equal(signatures.size,22);
 });
 
 test('all maps retain their references while scenery changes throughout the route',()=>{
