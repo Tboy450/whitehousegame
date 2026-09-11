@@ -29,9 +29,13 @@ On Windows, run `scripts/install-desktop-shortcut.ps1` to add **Rocket Run** to 
 | Lockheed Martin / Skunk Works | Parked jets, hangars, control tower, spinning engine test rig, secret parking | Tool chest, jet engine, radar cart, equipment cart |
 | SpaceX / Starbase | Coastal horizon, Starfactory, boosters, catch tower, crane, tanks, rapid-unscheduled-parking sign | Booster section, fuel tank, rocket engine, robot cart |
 
-Choose a starting sector in the menu. Every 600 points queues the next sector, cycling through all five even after difficulty caps at level 10. New obstacles stop spawning while the current ones clear and the rocket finishes its jump. The scenery then dissolves over 2.2 seconds, followed by a 0.8-second arrival breather. Spawning resumes after another half second, with new hazards entering from the far edge. Flight and scoring continue throughout; pausing freezes the transition too.
+Choose a starting sector in the menu. Fly through all five maps to complete a circuit and return to your starting map. Speed stays constant within each circuit, then increases by 15% during the clear arrival transition. Each increase compounds: circuit 1 runs at 100%, circuit 2 at 115%, circuit 3 at 132.25%, and so on.
 
-The route indicator shows clearing, travel and arrival status. The welcome caption appears only once the obstacle lane is clear. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
+Obstacle spacing, spawn distance ahead of the rocket, and map length use that same multiplier. Each map starts at 600 in-game metres, then becomes 690 metres on circuit 2 and 793.5 on circuit 3. Faster circuits retain the same map travel time and time between hazards; jump physics and obstacle sizes stay the same. Bonus points do not shorten maps, and transition travel does not count against the next map's distance.
+
+At the end of each map, new obstacles stop spawning while the current ones clear and the rocket finishes its jump. The scenery then dissolves over 2.2 seconds, followed by a 0.8-second arrival breather. Spawning resumes after another half second, with new hazards entering from ahead. Flight and scoring continue throughout; pausing freezes the transition too. The speed boost takes effect only after the fifth map's fade, when no old hazards remain.
+
+The route indicator shows distance remaining, clearing, travel and arrival status. The circuit counter and speed readout track each new lap, with a circuit-complete announcement during the clear transition. Welcome captions appear only once the obstacle lane is clear. Cleared hazards give +10 feedback, every fifth clear gets a small celebration, and crash messages vary by sector.
 
 These are fictional game sets and satirical captions, not representations of actual facility layouts or scientific claims. All backgrounds and obstacles are original canvas pixel art, and none of the background props have collisions.
 
@@ -64,7 +68,7 @@ The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
 ## Validation
 
-Automated checks cover all twenty obstacles' clearability at minimum/maximum speed, distinct valid obstacle drawings, stable varied scenery, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage and image failures, independent visitors, phone-sized canvas changes, keyboard/touch handlers, all five menu choices, crash captions, and progression beyond level 10. Transition checks cover waiting for obstacles and landing, gradual compositing, pause/resize during a fade, and safe hazard resumption on every map at both minimum and maximum speed. Controller tests are not real-browser visual or accessibility testing.
+Automated checks cover all twenty obstacles' clearability on circuits 1, 2, 6 and 12, distinct valid obstacle drawings, stable varied scenery, variable jumps, consistent simulation at 30/60/144 Hz, pause/restart behavior, storage and image failures, independent visitors, phone-sized canvas changes, keyboard/touch handlers, all five menu choices, and crash captions. Circuit checks cover three full circuits from every starting map, proportional speed/spacing/length changes, constant map travel time, distance-based progress, and the circuit announcement and result counter. Transition checks cover waiting for obstacles and landing, gradual compositing, pause/resize during a fade, and safe hazard resumption on every map on later circuits. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

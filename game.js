@@ -79,11 +79,13 @@
   function updateHUD() {
     // Avoid rewriting score, progress and accessibility attributes on every paint.
     const phase = game.transition?.phase || '';
-    const hudKey = [state,game.score,best,game.level,selectedScene,currentSceneIndex(),phase,Math.round(game.speed)].join(':');
+    const routeLength = Math.round(game.sectorLength / 12);
+    const routePoint = state === 'menu' ? 0 : phase ? routeLength : Math.floor(game.sectorProgress * routeLength);
+    const hudKey = [state,game.score,best,game.circuit,selectedScene,currentSceneIndex(),phase,routePoint].join(':');
     if (hudKey === shownHUD) return;
     shownHUD = hudKey;
     $('score').textContent = pad(game.score); $('highScore').textContent = pad(best);
-    $('level').textContent = 'LEVEL ' + String(game.level).padStart(2, '0');
+    $('circuit').textContent = 'CIRCUIT ' + String(game.circuit).padStart(2, '0');
     const nextScene = state === 'menu' ? selectedScene : currentSceneIndex();
     if (nextScene !== shownScene) {
       shownScene = nextScene;
@@ -92,16 +94,16 @@
       $('sectorLabel').replaceChildren(document.createTextNode(scene.title), Object.assign(document.createElement('small'), {textContent:scene.joke}));
     }
     $('speedLabel').textContent = state === 'menu' ? 'BOUND FOR SOMEWHERE ↗' : Math.round(game.speed / RULES.initialSpeed * 100) + '% CRUISING SPEED →';
-    const routePoint = state === 'menu' ? 0 : phase ? 600 : Math.min(600, Math.max(0, game.score - game.completedSectors * 600));
     const destination = ['MOON','MARS','AREA 51','SKUNK WORKS','STARBASE'][state === 'menu' ? (selectedScene + 1) % scenes.length : game.transition?.to ?? (game.sectorIndex + 1) % scenes.length];
     const arriving = state !== 'menu' && phase;
     $('gameContainer').dataset.transition = arriving || '';
     if (state === 'playing') $('flightStatus').textContent = {clearing:'SECTOR AHEAD',crossfade:'SCENERY CHANGE',settling:'AIRSPACE CLEAR'}[phase] || 'FLIGHT IN PROGRESS';
     $('nextSector').textContent = (arriving ? 'ARRIVING: ' : 'NEXT: ') + destination;
-    $('routeRemaining').textContent = arriving ? {clearing:'CLEARING',crossfade:'EN ROUTE',settling:'ARRIVED'}[phase] : (600 - routePoint) + ' PTS';
-    $('routeFill').style.width = (routePoint / 6) + '%';
+    $('routeRemaining').textContent = arriving ? {clearing:'CLEARING',crossfade:'EN ROUTE',settling:'ARRIVED'}[phase] : (routeLength - routePoint) + ' M';
+    $('routeFill').style.width = (routePoint / routeLength * 100) + '%';
+    $('routeProgress').setAttribute('aria-valuemax', String(routeLength));
     $('routeProgress').setAttribute('aria-valuenow', String(routePoint));
-    $('routeProgress').setAttribute('aria-valuetext', arriving ? 'Arriving at ' + destination + '. ' + (phase === 'clearing' ? 'Clear the last obstacles.' : 'Airspace clear.') : (600 - routePoint) + ' points to ' + destination);
+    $('routeProgress').setAttribute('aria-valuetext', arriving ? 'Arriving at ' + destination + '. ' + (phase === 'clearing' ? 'Clear the last obstacles.' : 'Airspace clear.') : (routeLength - routePoint) + ' metres to ' + destination);
   }
   function start() {
     game.start(selectedScene); activeJumpInputs.clear(); particles = []; scorePopups = []; particleClock = 0;
@@ -132,7 +134,7 @@
     $('resultEyebrow').textContent = record ? 'A NEW PERSONAL BEST' : 'A SLIGHT DETOUR';
     const crashScene = scenes.find(scene => scene.id === game.collision?.sector) || currentScene();
     $('resultMessage').textContent = crashScene.crashes[game.passed % crashScene.crashes.length];
-    $('finalScore').textContent = pad(game.score); $('finalBest').textContent = pad(best); $('levelReached').textContent = game.level;
+    $('finalScore').textContent = pad(game.score); $('finalBest').textContent = pad(best); $('circuitReached').textContent = game.circuit;
     $('milestone').textContent = ''; setState('over'); updateHUD();
     burst(game.player.x + 160, game.player.y - 25, 22, '#e9502f');
     $('retryButton').focus({preventScroll:true});
@@ -266,22 +268,18 @@
         const events=game.update(RULES.step);accumulator-=RULES.step;
         for(const event of events){
           if(['land','jump','pass','crash'].includes(event)) tone(event);
-          if(event==='transition'||(event==='level'&&!game.transition)) tone('level');
+          if(event==='transition'||event==='circuit') tone('level');
           if(event==='land')burst(game.player.x+70,RULES.ground-3,5,'#aeb497');
           if(event==='pass'){
             scorePopups.push({x:game.player.x+100,y:game.player.y-151,life:.8,text:game.passed%5===0?game.passed+' CLEARED!':'+10'});
             burst(game.player.x+40,game.player.y-50,4,currentScene().id==='area51'?'#c5df9e':'#d99648');
           }
-          if(event==='level'){
-            if(!game.transition){
-              milestoneUntil=sceneTime+1.8;
-              $('milestone').textContent='LEVEL '+String(game.level).padStart(2,'0')+' — KEEP FLYING';
-            }
-          }
           if(event==='approach') $('milestone').textContent='';
           if(event==='transition'){
             milestoneUntil=Infinity;
-            $('milestone').textContent=scenes[game.transition.to].announcement+'\nAIRSPACE CLEAR — ENJOY THE VIEW';
+            $('milestone').textContent=game.transition.completesCircuit
+              ? 'CIRCUIT '+String(game.circuit).padStart(2,'0')+' COMPLETE\nSPEED +15% · LONGER SECTORS & GAPS'
+              : scenes[game.transition.to].announcement+'\nAIRSPACE CLEAR — ENJOY THE VIEW';
           }
           if(event==='sector'){
             milestoneUntil=sceneTime+RULES.sectorRest;

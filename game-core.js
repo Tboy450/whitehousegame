@@ -3,7 +3,7 @@
   'use strict';
   const RULES = Object.freeze({ width: 1200, height: 570, ground: 464, playerX: 154,
     playerWidth: 200, playerHeight: 112, gravity: 1850, jumpVelocity: -780,
-    initialSpeed: 330, maxSpeed: 680, step: 1 / 120,
+    initialSpeed: 330, circuitSpeedFactor: 1.15, sectorLength: 7200, step: 1 / 120,
     sectorFade: 2.2, sectorRest: .8, sectorSpawnDelay: .5 });
   const SECTOR_IDS = Object.freeze(['moon', 'mars', 'area51', 'lockheed', 'spacex']);
   const SECTOR_OBSTACLES = Object.freeze({
@@ -49,7 +49,7 @@
     constructor(random = Math.random) { this.random = random; this.reset(); }
     reset() {
       this.state = 'ready'; this.time = 0; this.distance = 0; this.score = 0; this.passed = 0;
-      this.level = 1; this.speed = RULES.initialSpeed; this.obstacles = [];
+      this.obstacles = []; this.sectorStartDistance = 0;
       this.startSector = 0; this.completedSectors = 0; this.transition = null; this.collision = null;
       this.spawnIn = 2.1; this.jumpBuffer = 0; this.held = false;
       this.player = { x: RULES.playerX, y: RULES.ground, vy: 0, airborne: false, jumpTime: 0, cut: false };
@@ -61,7 +61,13 @@
     }
     get sectorIndex() { return (this.startSector + this.completedSectors) % SECTOR_IDS.length; }
     get sectorId() { return SECTOR_IDS[this.sectorIndex]; }
-    get nextSectorScore() { return (this.completedSectors + 1) * 600; }
+    get completedCircuits() { return Math.floor(this.completedSectors / SECTOR_IDS.length); }
+    get circuit() { return this.completedCircuits + 1; }
+    get speedMultiplier() { return RULES.circuitSpeedFactor ** this.completedCircuits; }
+    get speed() { return RULES.initialSpeed * this.speedMultiplier; }
+    get sectorLength() { return RULES.sectorLength * this.speedMultiplier; }
+    get sectorDistance() { return Math.max(0, this.distance - this.sectorStartDistance); }
+    get sectorProgress() { return Math.min(1, this.sectorDistance / this.sectorLength); }
     get transitionProgress() { return this.transition?.phase === 'crossfade' ? Math.min(1, this.transition.elapsed / RULES.sectorFade) : 0; }
     pressJump() {
       if (this.state !== 'playing') return false;
@@ -88,9 +94,12 @@
       const available = this.time < 8 ? 2 : choices.length;
       const kind = choices[Math.min(available - 1, Math.floor(this.random() * available))];
       // Obstacles retain their original art when a sector changes while they are on screen.
-      this.obstacles.push({ ...kind, sector: this.sectorId, x: RULES.width + 35, y: RULES.ground - kind.height, passed: false });
-      // At every speed there is room to land, react, and jump again.
-      this.spawnIn = 1.45 + this.random() * .65 + (kind.width + 128) / this.speed;
+      const front = RULES.playerX + 163;
+      const lead = (RULES.width + 35 - front) * this.speedMultiplier;
+      this.obstacles.push({ ...kind, sector: this.sectorId, x: front + lead, y: RULES.ground - kind.height, passed: false });
+      // Constant scheduling time means the distance between hazards scales with speed,
+      // including the body-width allowance. Jump/landing time stays unchanged.
+      this.spawnIn = 1.45 + this.random() * .65 + (kind.width + 128) / RULES.initialSpeed;
     }
     update(dt) {
       if (this.state !== 'playing') return [];
@@ -117,11 +126,10 @@
       }
       this.obstacles = this.obstacles.filter(o => o.x + o.width > -40);
       this.score = Math.floor(this.distance / 12) + this.passed * 10;
-      const nextLevel = Math.min(10, 1 + Math.floor(this.score / 300));
-      if (nextLevel > this.level) { this.level = nextLevel; events.push('level'); }
       // Finish the old obstacle lane before changing scenery, without cancelling a jump.
-      if (!this.transition && this.score >= this.nextSectorScore) {
-        this.transition = { from: this.sectorIndex, to: (this.sectorIndex + 1) % SECTOR_IDS.length, phase: 'clearing', elapsed: 0 };
+      if (!this.transition && this.sectorDistance >= this.sectorLength) {
+        this.transition = { from: this.sectorIndex, to: (this.sectorIndex + 1) % SECTOR_IDS.length,
+          completesCircuit: (this.completedSectors + 1) % SECTOR_IDS.length === 0, phase: 'clearing', elapsed: 0 };
         events.push('approach');
       }
       const transition = this.transition;
@@ -134,11 +142,14 @@
           transition.elapsed += dt;
           if (transition.elapsed >= RULES.sectorFade) {
             this.completedSectors++; transition.phase = 'settling'; transition.elapsed = 0; events.push('sector');
+            if (transition.completesCircuit) events.push('circuit');
           }
         } else {
           transition.elapsed += dt;
           if (transition.elapsed >= RULES.sectorRest) {
             this.transition = null;
+            // The clear transition must not consume any of the next map's length.
+            this.sectorStartDistance = this.distance;
             // Preserve an explicitly disabled spawner (used by deterministic simulations).
             if (Number.isFinite(this.spawnIn)) this.spawnIn = RULES.sectorSpawnDelay;
           }
@@ -147,7 +158,6 @@
         this.spawnIn -= dt;
         if (this.spawnIn <= 0) this.spawn();
       }
-      this.speed = Math.min(RULES.maxSpeed, RULES.initialSpeed + this.time * 2.3);
       return events;
     }
   }

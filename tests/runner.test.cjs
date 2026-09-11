@@ -23,18 +23,18 @@ test('tap and hold produce different jump heights and both land exactly', () => 
   assert.ok(peak(true) > peak(false) + 40);
 });
 
-test('every obstacle has a forgiving clearable timing window at minimum and maximum speed', () => {
-  for (const speed of [RULES.initialSpeed, RULES.maxSpeed]) {
+test('every obstacle has a forgiving clearable timing window on circuits 1, 2, 6 and 12', () => {
+  for (const completedCircuits of [0, 1, 5, 11]) {
     for (const kind of OBSTACLES) {
       let successes = 0;
       for (let lead = .10; lead < .75; lead += .01) {
         const game = new Runner(); game.start(); game.spawnIn = Infinity;
-        game.time = (speed-RULES.initialSpeed)/2.3; game.speed = speed;
-        game.obstacles = [{ ...kind, x: game.player.x+163+speed*lead, y: RULES.ground-kind.height, passed:false }];
+        game.completedSectors = completedCircuits * SECTOR_IDS.length;
+        game.obstacles = [{ ...kind, x: game.player.x+163+game.speed*lead, y: RULES.ground-kind.height, passed:false }];
         game.pressJump(); advance(game, 1.5);
         if (game.state === 'playing' && game.passed === 1) successes++;
       }
-      assert.ok(successes >= 10, kind.type + ' at ' + speed + ' has only ' + successes + ' viable 10ms timings');
+      assert.ok(successes >= 10, kind.type + ' on circuit ' + (completedCircuits+1) + ' has only ' + successes + ' viable 10ms timings');
     }
   }
 });
@@ -50,16 +50,47 @@ test('pause freezes the world; restart restores a clean first run', () => {
   const game = new Runner(); game.start(); advance(game, 2.5);
   game.state = 'paused'; const snapshot = JSON.stringify(game);
   advance(game, 2); assert.equal(JSON.stringify(game), snapshot);
-  game.start(); assert.equal(game.score, 0); assert.equal(game.level, 1);
+  game.start(); assert.equal(game.score, 0); assert.equal(game.circuit, 1);
   assert.equal(game.obstacles.length, 0); assert.equal(game.speed, RULES.initialSpeed);
 });
 
-test('difficulty changes once per threshold, with bounded speed', () => {
-  const game = new Runner(); game.start(); game.spawnIn = Infinity;
-  game.distance = 3595;
-  const events = advance(game, .5);
-  assert.equal(game.level, 2); assert.equal(events.filter(e=>e==='level').length, 1);
-  advance(game, 400); assert.equal(game.level, 10); assert.equal(game.speed, RULES.maxSpeed);
+test('three full circuits from every starting map preserve map duration and boost only after five sectors', () => {
+  for (let start=0; start<SECTOR_IDS.length; start++) {
+    const game = new Runner(); game.start(start); game.spawnIn = Infinity;
+    let previousSpeed=game.speed, previousLength=game.sectorLength;
+    for(let sector=0; sector<15; sector++) {
+      const speed=game.speed, length=game.sectorLength, started=game.time;
+      assert.equal(game.sectorIndex,(start+sector)%SECTOR_IDS.length);
+      if(sector%5===0&&sector>0){
+        assert.ok(Math.abs(speed/previousSpeed-1.15)<1e-10);
+        assert.ok(Math.abs(length/previousLength-1.15)<1e-10);
+      } else {assert.equal(speed,previousSpeed);assert.equal(length,previousLength);}
+      for(let step=0;step<3600&&!game.transition;step++)game.update(RULES.step);
+      assert.equal(game.transition?.phase,'crossfade');
+      assert.ok(Math.abs(game.time-started-RULES.sectorLength/RULES.initialSpeed)<=RULES.step+1e-8);
+      assert.equal(game.speed,speed,'no speed increase during a map or as its fade starts');
+      const events=advance(game,RULES.sectorFade+RULES.sectorRest+.025);
+      assert.equal(game.completedSectors,sector+1);assert.equal(game.transition,null);
+      assert.equal(events.filter(e=>e==='circuit').length,(sector+1)%5===0?1:0);
+      assert.equal(game.completedCircuits,Math.floor((sector+1)/5));
+      // Start the measurement at the actual arrival, excluding test stepping overshoot.
+      game.distance=game.sectorStartDistance;
+      previousSpeed=speed;previousLength=length;
+    }
+    game.start(start);
+    assert.equal(game.circuit,1);assert.equal(game.speed,RULES.initialSpeed);
+    assert.equal(game.sectorStartDistance,0);assert.equal(game.sectorProgress,0);
+  }
+});
+
+test('bonus points do not shorten maps and transition travel does not consume the next map', () => {
+  const game=new Runner();game.start();game.spawnIn=Infinity;game.passed=1000;
+  advance(game,5);assert.ok(game.score>600);assert.equal(game.transition,null);
+  assert.equal(game.sectorLength,RULES.sectorLength);assert.equal(game.speed,RULES.initialSpeed);
+  game.distance=game.sectorLength-1;game.update(RULES.step);
+  advance(game,RULES.sectorFade+RULES.sectorRest+.05);
+  assert.equal(game.transition,null);assert.ok(game.sectorStartDistance>RULES.sectorLength);
+  assert.ok(game.sectorDistance<game.speed*.06);assert.ok(game.sectorProgress<.01);
 });
 
 test('fixed simulation steps give identical runs at 30, 60, and 144Hz', () => {
@@ -74,11 +105,26 @@ test('fixed simulation steps give identical runs at 30, 60, and 144Hz', () => {
   assert.equal(simulate(30),simulate(60)); assert.equal(simulate(60),simulate(144));
 });
 
-test('obstacle scheduling always leaves time to land and react', () => {
-  for(const speed of [RULES.initialSpeed,RULES.maxSpeed]) {
-    const game = new Runner(() => 0);game.start();game.speed=speed;game.spawn();
-    const contactDuration=(128+game.obstacles[0].width)/speed;
-    assert.ok(game.spawnIn-contactDuration >= 1.4);
+test('spawn lead and actual hazard spacing scale by the same rate as speed and map length', () => {
+  for(let sector=0;sector<SECTOR_IDS.length;sector++)for(const roll of [0,.26,.51,.99]){
+    let base;
+    for(const completedCircuits of [0,1,2,5,11]){
+      const game=new Runner(()=>roll);game.start(sector);game.time=9;
+      game.completedSectors=completedCircuits*SECTOR_IDS.length;game.spawn();
+      const first=game.obstacles[0],lead=first.x-(game.player.x+163),interval=game.spawnIn;
+      const contactDuration=(128+first.width)/game.speed;
+      assert.ok(interval-contactDuration>=1.45-1e-10);
+      game.spawnIn=Infinity;advance(game,interval);game.spawn();
+      assert.equal(game.state,'playing');assert.equal(game.obstacles.length,2);
+      const gap=game.obstacles[1].x-first.x;
+      if(!base)base={speed:game.speed,length:game.sectorLength,lead,gap,interval};
+      const factor=game.speed/base.speed;
+      assert.ok(Math.abs(lead/base.lead-factor)<1e-10);
+      assert.ok(Math.abs(gap/base.gap-factor)<1e-10);
+      assert.ok(Math.abs(game.sectorLength/base.length-factor)<1e-10);
+      assert.equal(interval,base.interval);
+      assert.ok(Math.abs(lead/game.speed-base.lead/base.speed)<1e-10);
+    }
   }
 });
 
@@ -111,10 +157,10 @@ test('a threshold waits for old obstacles and a landing, without spawning or can
   assert.equal(game.player.airborne,false);assert.equal(game.sectorId,'spacex');
 });
 
-test('each map gets a full fade and a clear arrival before its new hazards return at either speed',()=>{
-  for(let sector=0;sector<5;sector++)for(const speed of [RULES.initialSpeed,RULES.maxSpeed]){
-    const game=new Runner(()=>0);game.start(sector);game.time=(speed-RULES.initialSpeed)/2.3;game.speed=speed;
-    game.distance=7199;game.score=599;game.spawnIn=0;
+test('each map gets a full fade and a clear arrival before its new hazards return on later circuits',()=>{
+  for(let sector=0;sector<5;sector++)for(const completedCircuits of [0,1,5]){
+    const game=new Runner(()=>0);game.start(sector);game.completedSectors=completedCircuits*5;
+    game.distance=game.sectorLength-1;game.spawnIn=0;
     const events=game.update(RULES.step);assert.ok(events.includes('transition'));
     assert.equal(game.sectorIndex,sector);assert.equal(game.transitionProgress,0);
     advance(game,RULES.sectorFade-.1);assert.equal(game.sectorIndex,sector);assert.equal(game.obstacles.length,0);
@@ -154,13 +200,20 @@ test('collisions report the actual themed obstacle for the result message', () =
   assert.equal(game.collision.sector,'lockheed');assert.equal(game.collision.label,'Tool chest');
 });
 
-test('scenery keeps cycling after difficulty reaches its cap', () => {
-  const game=new Runner();game.start();game.spawnIn=Infinity;
-  game.level=10;game.completedSectors=4;game.score=2999;game.distance=35999;
-  assert.equal(game.sectorId,'spacex');
-  const events=advance(game,RULES.sectorFade+RULES.sectorRest+.1);
-  assert.equal(game.level,10);assert.equal(game.sectorId,'moon');
-  assert.equal(events.filter(event=>event==='sector').length,1);
-  assert.equal(events.filter(event=>event==='level').length,0);
-  game.distance=43199;game.score=3599;advance(game,RULES.sectorFade+.1);assert.equal(game.sectorId,'mars');
+test('a circuit boost waits for the last hazard, landing and full fade; pause cannot trigger it', () => {
+  const game=new Runner(()=>0);game.start();game.completedSectors=4;
+  game.distance=game.sectorLength-1;game.spawnIn=0;
+  const kind=SECTOR_OBSTACLES.spacex[0];
+  game.obstacles=[{...kind,sector:'spacex',x:50,y:RULES.ground-kind.height,passed:true}];
+  game.pressJump();advance(game,.5);
+  assert.equal(game.transition.phase,'clearing');assert.equal(game.speed,RULES.initialSpeed);
+  assert.ok(game.player.airborne);advance(game,.5);
+  assert.equal(game.transition.phase,'crossfade');assert.equal(game.circuit,1);
+  game.state='paused';advance(game,20);assert.equal(game.circuit,1);
+  game.state='playing';advance(game,RULES.sectorFade-.3);
+  assert.equal(game.circuit,1);assert.equal(game.obstacles.length,0);
+  const events=advance(game,.35);
+  assert.equal(events.filter(e=>e==='circuit').length,1);
+  assert.equal(game.circuit,2);assert.equal(game.speed,RULES.initialSpeed*1.15);
+  assert.equal(game.sectorId,'moon');assert.equal(game.transition.phase,'settling');
 });

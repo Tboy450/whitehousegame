@@ -164,20 +164,33 @@ test('each map launches with matching hazards and a themed crash message',()=>{
   }
 });
 
-test('the route indicator reflects progress, the chosen start, and an endless sector change',()=>{
+test('the route indicator, circuit announcement and results follow scaled distance from the chosen start',()=>{
   let runner;
   class ControlledRunner extends core.Runner {constructor(){super();runner=this;}}
   const app=setup({engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
   app.dispatch(get('spacexButton'),'click');assert.equal(get('nextSector').textContent,'NEXT: MOON');
   app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;runner.distance=3599;
   app.frames(3);assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])>=300);
-  runner.completedSectors=4;runner.score=2999;runner.level=10;runner.distance=35999;app.frames(3);
+  runner.passed=100;app.frames(3);assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<310);
+  assert.match(get('routeRemaining').textContent,/ M$/);
+  runner.completedSectors=4;runner.distance=runner.sectorLength-1;app.frames(3);
   assert.equal(get('gameContainer').dataset.scene,'lockheed');
   assert.equal(get('nextSector').textContent,'ARRIVING: STARBASE');
   assert.equal(get('routeProgress').attributes['aria-valuenow'],'600');
+  assert.match(get('milestone').textContent,/CIRCUIT 01 COMPLETE/);
+  assert.match(get('milestone').textContent,/SPEED \+15%/);
+  assert.equal(get('circuit').textContent,'CIRCUIT 01');
   app.frames(140);
   assert.equal(get('gameContainer').dataset.scene,'spacex');
-  assert.match(get('milestone').textContent,/STARBASE/);
+  assert.equal(get('circuit').textContent,'CIRCUIT 02');
+  assert.match(get('speedLabel').textContent,/115%/);
   app.frames(60);assert.equal(get('nextSector').textContent,'NEXT: MOON');
+  assert.equal(get('routeProgress').attributes['aria-valuemax'],'690');
   assert.ok(Number(get('routeProgress').attributes['aria-valuenow'])<150);
+  runner.spawn();runner.obstacles[0].x=runner.player.x+65;app.frames(3);
+  assert.equal(get('gameOver').hidden,false);assert.equal(get('circuitReached').textContent,2);
+  app.dispatch(get('retryButton'),'click');
+  assert.equal(get('circuit').textContent,'CIRCUIT 01');
+  assert.equal(get('routeProgress').attributes['aria-valuemax'],'600');
+  assert.match(get('speedLabel').textContent,/100%/);
 });
