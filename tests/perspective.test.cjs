@@ -44,3 +44,29 @@ test('all 3D map themes and every hazard render finite geometry without mutating
   }
   paletteSignatures.forEach(signatures=>assert.equal(signatures.size,5));
 });
+
+test('the original crew texture and its depth layers stay in frame throughout both cameras and a full jump',()=>{
+  const image={width:1536,height:1024},depth={width:1536,height:1024};
+  for(const [width,height] of [[1200,570],[800,790],[800,570],[1420,390]])for(const blend of [0,.5,1])for(const altitude of [0,165]){
+    const renderer=new Scene3D({});renderer.camera=new Camera(width,height,blend);
+    renderer.viewBlend=blend;renderer.crewImage=image;renderer.crewDepth=depth;renderer.shadowColor='#667766';
+    renderer.width=width;renderer.height=height;renderer.rocket(altitude);
+    const textured=renderer.faces.filter(f=>f.image);
+    assert.equal(textured.filter(f=>f.image===image).length,48);
+    assert.equal(textured.filter(f=>f.image===depth).length,96);
+    for(const face of textured)for(const [x,y] of face.points){
+      assert.ok(Number.isFinite(x)&&Number.isFinite(y));
+      assert.ok(x>0&&x<width&&y>0&&y<height,JSON.stringify({width,height,blend,altitude,x,y}));
+    }
+  }
+});
+
+test('perspective texturing uses finite transforms, preserves transparency and balances the canvas stack',()=>{
+  const image={width:1536,height:1024};let stack=0,draws=0;
+  const c={save(){stack++;},restore(){stack--;},beginPath(){},moveTo(){},lineTo(){},closePath(){},clip(){},
+    transform(...args){assert.ok(args.every(Number.isFinite));},drawImage(source){assert.equal(source,image);draws++;}};
+  const renderer=new Scene3D(c);renderer.camera=new Camera(1200,570,1);
+  renderer.crewPanel(image,80,[.8,0,.6],2);
+  for(const face of renderer.faces)renderer.paintTexture(face);
+  assert.equal(draws,48);assert.equal(stack,0);assert.equal(c.imageSmoothingEnabled,false);
+});

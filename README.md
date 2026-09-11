@@ -18,9 +18,9 @@ A one-button desert runner inspired by the Chrome offline dinosaur game, with a 
 
 ## Camera perspectives
 
-The default 3D Angle view shows a horizontal rocket with depth, shaded geometry and ground shadows. 3D Chase looks down the route from behind the crew. Classic retains the original side-on pixel artwork. Desktop players can press C during a jump; switching cameras preserves position, velocity, obstacles, score and pause state. Reduced-motion mode switches cameras immediately.
+The default 3D Angle view shows a horizontal rocket with depth, shaded geometry and ground shadows. 3D Chase looks down the route from behind the crew. Both 3D views now reuse the original detailed crew PNG on perspective-mapped panels with shallow shaded edges. The artwork turns partway toward the camera to keep both faces readable, preserving the original hair, outfits, rocket proportions and teal window. This is a layered 2.5D illusion within the 3D world; the simpler geometric crew remains available while the image loads. Classic retains the original side-on pixel artwork. Desktop players can press C during a jump; switching cameras preserves position, velocity, obstacles, score and pause state. Reduced-motion mode switches cameras immediately.
 
-Inspired by the perspective concept in [3D Dino Run](https://www.y8.com/games/3d_dino_run), the 3D views use original low-poly meshes: a rocket, two seated caricatures, themed hazards, landers, habitats, hangars, jets, saucers and Starbase towers. The renderer projects actual 3D coordinates onto Canvas 2D, clips the near plane and sorts surfaces by depth. It needs no WebGL library, remote model downloads or additional network dependencies. Camera framing is checked numerically across phone and desktop aspect ratios; real-device visual and performance testing remains to be done.
+Inspired by the perspective concept in [3D Dino Run](https://www.y8.com/games/3d_dino_run), the 3D world uses original low-poly hazards, landers, habitats, hangars, jets, saucers and Starbase towers. The renderer projects actual 3D coordinates onto Canvas 2D, clips the near plane and sorts surfaces and textured triangles by depth. The original image file stays unchanged; its depth masks exist only in memory. It needs no WebGL library, remote model downloads or additional network dependencies. Camera framing is checked numerically across phone and desktop aspect ratios; the revised character was also inspected in both 3D views in a 370-pixel-wide browser preview. Physical-phone performance testing remains to be done.
 
 ## Desktop shortcut
 
@@ -78,7 +78,7 @@ The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
 ## Validation
 
-39 automated checks cover all 22 hazards' clearability on levels 1, 2, 6 and 12; continuous collisions at high speed; three full circuits from every start; proportional speed, spacing and distance; keyboard/touch controls; pause/restart; image/storage failures; and independent visitors. Perspective checks cover camera switching mid-jump, all 3D map/hazard geometry, near-plane clipping, full-crew jump framing across aspect ratios, and pause/resize/camera changes during a scene fade. Controller tests are not real-browser visual or accessibility testing.
+41 automated checks cover all 22 hazards' clearability on levels 1, 2, 6 and 12; continuous collisions at high speed; three full circuits from every start; proportional speed, spacing and distance; keyboard/touch controls; pause/restart; image/storage failures; and independent visitors. Perspective checks cover camera switching mid-jump, all 3D map/hazard geometry, near-plane clipping, full-crew jump framing across aspect ratios, textured crew layers and their canvas transforms, and pause/resize/camera changes during a scene fade. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

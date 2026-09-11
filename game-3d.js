@@ -21,7 +21,7 @@
       this.up=cross(this.right,this.forward);this.focal=Math.min(width*.95,height*1.45);
     }
     camera(point){const p=sub(point,this.eye);return [dot(p,this.right),dot(p,this.up),dot(p,this.forward)];}
-    screen(p){return [this.width*.60+p[0]*this.focal/p[2],this.height*.53-p[1]*this.focal/p[2]];}
+    screen(p){return [this.width*.66+p[0]*this.focal/p[2],this.height*.55-p[1]*this.focal/p[2]];}
     project(point){const p=this.camera(point);return p[2]<20?null:{point:this.screen(p),depth:p[2],scale:this.focal/p[2]};}
     polygon(vertices){
       const input=vertices.map(p=>this.camera(p)),out=[];
@@ -35,6 +35,39 @@
   }
   class Scene3D {
     constructor(ctx){this.ctx=ctx;this.faces=[];}
+    textureTriangle(image,vertices,uv){
+      const points=vertices.map(v=>this.camera.project(v));
+      if(points.some(p=>!p))return;
+      this.faces.push({image,points:points.map(p=>p.point),uv,depth:points.reduce((n,p)=>n+p.depth,0)/3});
+    }
+    crewPanel(image,altitude,axis,depth){
+      const w=200,h=w*image.height/image.width,normal=[-axis[2],0,axis[0]];
+      const vertex=(u,v)=>[axis[0]*(u-.5)*w+normal[0]*depth,altitude-4+(1-v)*h,axis[2]*(u-.5)*w+normal[2]*depth];
+      // Subdivision keeps the original faces undistorted across a perspective plane.
+      for(let col=0;col<8;col++)for(let row=0;row<3;row++){
+        const u=col/8,v=row/3,U=(col+1)/8,V=(row+1)/3;
+        const a=vertex(u,v),b=vertex(U,v),c=vertex(U,V),d=vertex(u,V);
+        const A=[u*image.width,v*image.height],B=[U*image.width,v*image.height],C=[U*image.width,V*image.height],D=[u*image.width,V*image.height];
+        this.textureTriangle(image,[a,b,c],[A,B,C]);this.textureTriangle(image,[a,c,d],[A,C,D]);
+      }
+    }
+    paintTexture(face){
+      const c=this.ctx,[a,b,d]=face.points,[A,B,D]=face.uv;
+      const sx=B[0]-A[0],sy=B[1]-A[1],tx=D[0]-A[0],ty=D[1]-A[1],det=sx*ty-tx*sy;
+      if(Math.abs(det)<1e-8)return;
+      const ux=b[0]-a[0],uy=b[1]-a[1],vx=d[0]-a[0],vy=d[1]-a[1];
+      const m0=(ux*ty-vx*sy)/det,m1=(uy*ty-vy*sy)/det;
+      const m2=(vx*sx-ux*tx)/det,m3=(vy*sx-uy*tx)/det;
+      c.save();c.beginPath();
+      // A subpixel overlap hides hairline cracks between adjacent textured triangles.
+      const center=[(a[0]+b[0]+d[0])/3,(a[1]+b[1]+d[1])/3];
+      for(let i=0;i<3;i++){
+        const p=face.points[i],dx=p[0]-center[0],dy=p[1]-center[1],length=Math.hypot(dx,dy)||1;
+        const x=p[0]+dx/length*.35,y=p[1]+dy/length*.35;i?c.lineTo(x,y):c.moveTo(x,y);
+      }
+      c.closePath();c.clip();c.transform(m0,m1,m2,m3,a[0]-m0*A[0]-m2*A[1],a[1]-m1*A[0]-m3*A[1]);
+      c.imageSmoothingEnabled=false;c.drawImage(face.image,0,0);c.restore();
+    }
     face(vertices,color){
       const face=this.camera.polygon(vertices);if(!face)return;
       if(face.points.every(p=>p[0]<-100)||face.points.every(p=>p[0]>this.width+100)||face.points.every(p=>p[1]<-100)||face.points.every(p=>p[1]>this.height+100))return;
@@ -63,6 +96,7 @@
     flush(){
       const c=this.ctx;this.faces.sort((a,b)=>b.depth-a.depth);
       for(const face of this.faces){
+        if(face.image){this.paintTexture(face);continue;}
         c.fillStyle=face.color;
         if(face.label){c.font='bold '+face.size+'px "Courier New", monospace';c.textAlign='center';c.fillText(face.label,...face.point);continue;}
         c.beginPath();face.points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.closePath();c.fill();
@@ -105,6 +139,16 @@
       }
     }
     rocket(altitude){
+      if(this.crewImage){
+        // Turn the artwork partway toward the camera so both faces remain readable
+        // in chase view. Shaded alpha layers give the cutout a small physical edge.
+        const axis=unit(mix([1,0,0],this.camera.right,.30+.42*this.viewBlend));
+        const normal=[-axis[2],0,axis[0]];
+        this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*18,.35,axis[2]*u*77+normal[2]*v*18]),this.shadowColor);
+        if(this.crewDepth)for(const depth of [-7,-3])this.crewPanel(this.crewDepth,altitude,axis,depth);
+        this.crewPanel(this.crewImage,altitude,axis,2);
+        return;
+      }
       const y=altitude+27;
       this.shadow(0,0,168,40);
       this.tube(-72,y,0,135,18,'#eee9d8');
@@ -179,8 +223,9 @@
         this.box(x+230,0,z-18,12,210,12,dark);this.box(x+204,170,z-14,40,9,9,dark);
       }
     }
-    render({width,height,palette,game,distance,time,blend=0,menu=false,reduced=false}){
+    render({width,height,palette,game,distance,time,blend=0,menu=false,reduced=false,crewImage=null,crewDepth=null}){
       this.width=width;this.height=height;this.camera=new Camera(width,height,blend);
+      this.viewBlend=blend;this.crewImage=crewImage;this.crewDepth=crewDepth;
       this.time=reduced?0:time;this.shadowColor=shade(palette.dust,.78);this.faces.length=0;
       const c=this.ctx,p=palette;c.fillStyle=p.sky;c.fillRect(0,0,width,height);
       // A low horizon keeps both the full jump arc and approaching traffic visible.
