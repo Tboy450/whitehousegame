@@ -18,7 +18,8 @@
       this.eye=mix([-140,290,800],[-430,255,250],blend);
       const target=mix([330,25,0],[420,15,0],blend);
       this.forward=unit(sub(target,this.eye));this.right=unit(cross(this.forward,[0,1,0]));
-      this.up=cross(this.right,this.forward);this.focal=Math.min(width*.95,height*1.45);
+      // Leave room for the forward-facing crew's near end throughout a chase jump.
+      this.up=cross(this.right,this.forward);this.focal=Math.min(width*.95,height*(1.45-.15*blend));
     }
     camera(point){const p=sub(point,this.eye);return [dot(p,this.right),dot(p,this.up),dot(p,this.forward)];}
     screen(p){return [this.width*.66+p[0]*this.focal/p[2],this.height*.55-p[1]*this.focal/p[2]];}
@@ -140,9 +141,9 @@
     }
     rocket(altitude){
       if(this.crewImage){
-        // Turn the artwork partway toward the camera so both faces remain readable
-        // in chase view. Shaded alpha layers give the cutout a small physical edge.
-        const axis=unit(mix([1,0,0],this.camera.right,.30+.42*this.viewBlend));
+        // Ease out the angled view's camera-facing tilt as we move behind the crew,
+        // so the rocket and riders point down the route in chase view.
+        const axis=unit(mix([1,0,0],this.camera.right,.30*(1-this.viewBlend)));
         const normal=[-axis[2],0,axis[0]];
         this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*18,.35,axis[2]*u*77+normal[2]*v*18]),this.shadowColor);
         if(this.crewDepth)for(const depth of [-7,-3])this.crewPanel(this.crewDepth,altitude,axis,depth);
