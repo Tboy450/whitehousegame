@@ -14,7 +14,7 @@
   let shownHUD = '';
   const { Art, ObstacleSprites, SCENES: scenes } = window.RocketArtwork;
   const art = new Art(ctx);
-  const {Scene3D,VIEWS}=window.Rocket3D;
+  const {Scene3D,VIEWS,buildCrewHull}=window.Rocket3D;
   const obstacleSprites=new ObstacleSprites(()=>document.createElement('canvas'));
   const scene3D=new Scene3D(ctx,obstacleSprites);
   let view='angle',cameraBlend=0;
@@ -34,15 +34,14 @@
   $('highScore').textContent = pad(best);
 
   const crew = new Image();
-  let crewTexture=null,crewDepth=null;
+  let crewTexture=null,crewHull=null;
   crew.onload = () => {
-    // Keep the original PNG intact. These in-memory textures reuse its silhouette
-    // for a shaded extrusion, shared by both 3D scene renderers.
+    // Keep one detailed front and trace a small alpha silhouette for solid sides.
     crewTexture=document.createElement('canvas');crewTexture.width=crew.naturalWidth;crewTexture.height=crew.naturalHeight;
     crewTexture.getContext('2d').drawImage(crew,0,0);
-    crewDepth=document.createElement('canvas');crewDepth.width=crew.naturalWidth;crewDepth.height=crew.naturalHeight;
-    const depth=crewDepth.getContext('2d');depth.drawImage(crew,0,0);
-    depth.globalCompositeOperation='source-atop';depth.fillStyle='rgba(20,35,43,.38)';depth.fillRect(0,0,crewDepth.width,crewDepth.height);depth.globalCompositeOperation='source-over';
+    const outline=document.createElement('canvas');outline.width=192;outline.height=Math.round(192*crew.naturalHeight/crew.naturalWidth);
+    const outlineContext=outline.getContext('2d');outlineContext.drawImage(crew,0,0,outline.width,outline.height);
+    try{crewHull=buildCrewHull(outlineContext.getImageData(0,0,outline.width,outline.height));}catch(_){crewHull=null;}
     ready = true; $('assetError').hidden = true;
   };
   crew.onerror = () => { $('assetError').hidden = false; };
@@ -279,7 +278,7 @@
       const viewHeight=height/scale;
       ctx.save();ctx.scale(scale,scale);
       const scene={width:viewWidth,height:viewHeight,palette:scenes[game.sectorIndex],game,
-        distance:sceneDistance,time:sceneTime,blend:cameraBlend,reduced:reducedMotion,crewImage:crewTexture,crewDepth};
+        distance:sceneDistance,time:sceneTime,blend:cameraBlend,reduced:reducedMotion,crewImage:crewTexture,crewHull};
       scene3D.render(scene);
       if(game.transition?.phase==='crossfade'){
         if(transitionCanvas.width!==canvas.width||transitionCanvas.height!==canvas.height){transitionCanvas.width=canvas.width;transitionCanvas.height=canvas.height;}

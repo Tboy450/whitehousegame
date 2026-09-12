@@ -12,6 +12,66 @@
   const mix=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
   const shade=(hex,factor)=>'#'+hex.slice(1).match(/../g).map(v=>Math.min(255,Math.round(parseInt(v,16)*factor)).toString(16).padStart(2,'0')).join('');
   function noise(n){const v=Math.sin(n*127.1+311.7)*43758.5453;return v-Math.floor(v);}
+  // Trace the opaque outline once, then bridge it with real side surfaces.
+  // This avoids copying eyes, clothing and outlines onto every depth slice.
+  function buildCrewHull({data,width,height}={}){
+    if(!data||!width||!height)return [];
+    const solid=(x,y)=>x>=0&&y>=0&&x<width&&y<height&&data[(y*width+x)*4+3]>=96;
+    const edges=[],outgoing=new Map(),key=(x,y)=>y*(width+1)+x;
+    const add=(x,y,X,Y,dir)=>{
+      const edge={a:[x,y],b:[X,Y],dir,used:false};edges.push(edge);
+      const id=key(x,y);if(!outgoing.has(id))outgoing.set(id,[]);outgoing.get(id).push(edge);
+    };
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(solid(x,y)){
+      if(!solid(x,y-1))add(x,y,x+1,y,0);
+      if(!solid(x+1,y))add(x+1,y,x+1,y+1,1);
+      if(!solid(x,y+1))add(x+1,y+1,x,y+1,2);
+      if(!solid(x-1,y))add(x,y+1,x,y,3);
+    }
+    const simplify=points=>{
+      if(points.length<=2)return points;
+      const a=points[0],b=points.at(-1),dx=b[0]-a[0],dy=b[1]-a[1],length=dx*dx+dy*dy;
+      let max=.65*.65,index=0;
+      for(let i=1;i<points.length-1;i++){
+        const p=points[i],t=length?Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/length)):0;
+        const d=(p[0]-a[0]-t*dx)**2+(p[1]-a[1]-t*dy)**2;
+        if(d>max){max=d;index=i;}
+      }
+      return index?[...simplify(points.slice(0,index+1)).slice(0,-1),...simplify(points.slice(index))]:[a,b];
+    };
+    const hull=[];
+    for(const first of edges){
+      if(first.used)continue;
+      const loop=[];let edge=first;
+      while(edge&&!edge.used){
+        edge.used=true;loop.push(edge.a);
+        if(edge.b[0]===first.a[0]&&edge.b[1]===first.a[1])break;
+        const candidates=(outgoing.get(key(...edge.b))||[]).filter(e=>!e.used);
+        // At diagonal contacts, keep each solid island on the right of its loop.
+        const priority=e=>[1,0,3,2].indexOf((e.dir-edge.dir+4)%4);
+        candidates.sort((a,b)=>priority(a)-priority(b));edge=candidates[0];
+      }
+      const area=loop.reduce((sum,a,i)=>{const b=loop[(i+1)%loop.length];return sum+a[0]*b[1]-b[0]*a[1];},0)/2;
+      if(Math.abs(area)<4)continue;
+      let split=1;
+      for(let i=2;i<loop.length;i++)if(Math.hypot(...sub(loop[i],loop[0]))>Math.hypot(...sub(loop[split],loop[0])))split=i;
+      const points=[...simplify(loop.slice(0,split+1)).slice(0,-1),...simplify([...loop.slice(split),loop[0]]).slice(0,-1)];
+      const colors=points.map((a,i)=>{
+        const b=points[(i+1)%points.length],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy)||1;
+        const x=Math.round((a[0]+b[0])/2-dy/length*2),y=Math.round((a[1]+b[1])/2+dx/length*2);
+        const rgb=[0,0,0];let weight=0;
+        for(let Y=y-1;Y<=y+1;Y++)for(let X=x-1;X<=x+1;X++)if(solid(X,Y)){
+          const at=(Y*width+X)*4;for(let c=0;c<3;c++)rgb[c]+=data[at+c];weight++;
+        }
+        return weight?rgb.map(n=>n/weight):[45,57,62];
+      });
+      hull.push({points:points.map(([x,y])=>[x/width,y/height]),colors:colors.map((rgb,i)=>{
+        const prev=colors[(i+colors.length-1)%colors.length],next=colors[(i+1)%colors.length];
+        return '#'+rgb.map((n,c)=>Math.round(n*.6+prev[c]*.2+next[c]*.2).toString(16).padStart(2,'0')).join('');
+      })});
+    }
+    return hull;
+  }
   class Camera {
     constructor(width,height,blend=0){
       this.width=width;this.height=height;
@@ -54,6 +114,21 @@
     }
     crewPanel(image,altitude,axis,depth,taper=1){
       this.spritePanel(image,{y:altitude-4,w:200,h:200*image.height/image.width,axis,depth,columns:8,rows:3,taper});
+    }
+    crewSides(altitude,axis){
+      const normal=[-axis[2],0,axis[0]],h=200*this.crewImage.height/this.crewImage.width;
+      const vertex=([u,v],[depth,taper])=>[axis[0]*(u-.5)*200*taper+normal[0]*depth,altitude-4+(1-v)*h*taper,axis[2]*(u-.5)*200*taper+normal[2]*depth];
+      const rings=[[-16,.965],[-10,1],[10,1],[16,.965]],light=unit([-.35,.85,.55]);
+      for(const loop of this.crewHull||[])for(let i=0;i<loop.points.length;i++){
+        const a=loop.points[i],b=loop.points[(i+1)%loop.points.length];
+        for(let j=0;j<rings.length-1;j++){
+          const A=vertex(a,rings[j]),B=vertex(b,rings[j]),C=vertex(b,rings[j+1]),D=vertex(a,rings[j+1]);
+          const outward=unit(cross(sub(D,A),sub(B,A))),center=A.map((n,k)=>(n+B[k]+C[k]+D[k])/4);
+          if(dot(outward,sub(this.camera.eye,center))<=0)continue;
+          const factor=.72+Math.max(0,dot(outward,light))*.3;
+          this.face([A,D,C,B],shade(loop.colors[i],factor));
+        }
+      }
     }
     paintTexture(face){
       const c=this.ctx,[a,b,d]=face.points,[A,B,D]=face.uv;
@@ -149,11 +224,7 @@
         const axis=unit(mix([1,0,0],this.camera.right,.30*(1-this.viewBlend)));
         const normal=[-axis[2],0,axis[0]];
         this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*25,.35,axis[2]*u*77+normal[2]*v*25]),this.shadowColor);
-        // A rounded stack retains the artwork's colors along a substantial side
-        // wall. The slightly inset front makes a bevel instead of a paper edge.
-        if(this.crewDepth)for(let depth=-16;depth<16;depth+=4){
-          this.crewPanel(this.crewDepth,altitude,axis,depth,1-.035*Math.pow(depth/16,2));
-        }
+        this.crewSides(altitude,axis);
         this.crewPanel(this.crewImage,altitude,axis,16,.965);
         return;
       }
@@ -216,9 +287,9 @@
         this.box(x+230,0,z-18,12,210,12,dark);this.box(x+204,170,z-14,40,9,9,dark);
       }
     }
-    render({width,height,palette,game,distance,time,blend=0,menu=false,reduced=false,crewImage=null,crewDepth=null}){
+    render({width,height,palette,game,distance,time,blend=0,menu=false,reduced=false,crewImage=null,crewHull=null}){
       this.width=width;this.height=height;this.camera=new Camera(width,height,blend);
-      this.viewBlend=blend;this.crewImage=crewImage;this.crewDepth=crewDepth;
+      this.viewBlend=blend;this.crewImage=crewImage;this.crewHull=crewHull;
       this.time=reduced?0:time;this.shadowColor=shade(palette.dust,.78);this.faces.length=0;
       const c=this.ctx,p=palette;c.fillStyle=p.sky;c.fillRect(0,0,width,height);
       // A low horizon keeps both the full jump arc and approaching traffic visible.
@@ -250,6 +321,6 @@
       this.flush();
     }
   }
-  const api={Camera,Scene3D,VIEWS};
+  const api={Camera,Scene3D,VIEWS,buildCrewHull};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Rocket3D=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

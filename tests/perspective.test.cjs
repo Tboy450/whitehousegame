@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {Camera,Scene3D}=require('../game-3d.js');
+const {Camera,Scene3D,buildCrewHull}=require('../game-3d.js');
 const {Runner,OBSTACLES,RULES}=require('../game-core.js');
 const {SCENES}=require('../game-art.js');
 
@@ -47,20 +47,57 @@ test('all 3D map themes and every hazard render finite geometry without mutating
   paletteSignatures.forEach(signatures=>assert.equal(signatures.size,5));
 });
 
-test('the original crew texture and its depth layers stay in frame throughout both cameras and a full jump',()=>{
-  const image={width:1536,height:1024},depth={width:1536,height:1024};
+test('one original crew front and connected sides stay in frame throughout both cameras and a full jump',()=>{
+  const image={width:1536,height:1024};
+  const hull=[{points:[[0,0],[1,0],[1,1],[0,1]],colors:['#c6a87a','#bc714f','#54656c','#4a687a']}];
   for(const [width,height] of [[1200,570],[800,790],[800,570],[1420,390]])for(const blend of [0,.5,1])for(const altitude of [0,165]){
     const renderer=new Scene3D({});renderer.camera=new Camera(width,height,blend);
-    renderer.viewBlend=blend;renderer.crewImage=image;renderer.crewDepth=depth;renderer.shadowColor='#667766';
+    renderer.viewBlend=blend;renderer.crewImage=image;renderer.crewHull=hull;renderer.shadowColor='#667766';
     renderer.width=width;renderer.height=height;renderer.rocket(altitude);
     const textured=renderer.faces.filter(f=>f.image);
-    assert.equal(textured.filter(f=>f.image===image).length,48);
-    assert.equal(textured.filter(f=>f.image===depth).length,384);
-    for(const face of textured)for(const [x,y] of face.points){
+    assert.equal(textured.length,48,'the detailed artwork appears on one front only');
+    assert.ok(textured.every(f=>f.image===image));
+    assert.ok(renderer.faces.filter(f=>!f.image).length>1,'solid side walls accompany the front');
+    for(const face of renderer.faces)for(const [x,y] of face.points){
       assert.ok(Number.isFinite(x)&&Number.isFinite(y));
       assert.ok(x>0&&x<width&&y>0&&y<height,JSON.stringify({width,height,blend,altitude,x,y}));
     }
   }
+});
+
+test('crew outline tracing preserves holes and separate shapes while discarding transparent glow',()=>{
+  const width=24,height=16,data=new Uint8ClampedArray(width*height*4);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const body=x>=1&&x<13&&y>=1&&y<13,hole=x>=5&&x<9&&y>=5&&y<9,island=x>=18&&x<21&&y>=4&&y<7;
+    data.set([180,130,90,(body&&!hole)||island?255:20],(y*width+x)*4);
+  }
+  const hull=buildCrewHull({data,width,height});assert.equal(hull.length,3);
+  const areas=hull.map(loop=>{
+    assert.equal(loop.points.length,loop.colors.length);assert.ok(loop.points.length>=4);
+    assert.ok(loop.colors.every(color=>/^#[0-9a-f]{6}$/.test(color)));
+    assert.ok(loop.points.flat().every(n=>n>=0&&n<=1));
+    return loop.points.reduce((sum,a,i)=>{const b=loop.points[(i+1)%loop.points.length];return sum+a[0]*b[1]-b[0]*a[1];},0)/2;
+  });
+  assert.equal(areas.filter(a=>a<0).length,1,'holes have inward-facing walls');
+  assert.ok(Math.abs(areas.reduce((a,b)=>a+b,0)*width*height-(144-16+9))<1e-8);
+  assert.deepEqual(buildCrewHull(),[]);
+});
+
+test('crew side surfaces connect the back to the front bevel without repeated texture slices',()=>{
+  const renderer=new Scene3D({});renderer.camera=new Camera(1200,570,1);
+  renderer.crewImage={width:1536,height:1024};
+  renderer.crewHull=[{points:[[0,0],[1,0],[1,1],[0,1]],colors:Array(4).fill('#bda879')}];
+  const faces=[];renderer.face=(vertices,color)=>faces.push({vertices,color});
+  renderer.crewSides(25,[1,0,0]);
+  assert.ok(faces.length>0&&faces.length<=12);
+  const depthPairs=new Set(faces.map(f=>[...new Set(f.vertices.map(p=>p[2]))].sort((a,b)=>a-b).join(',')));
+  assert.ok(depthPairs.has('-16,-10'));assert.ok(depthPairs.has('-10,10'));assert.ok(depthPairs.has('10,16'));
+  for(const face of faces){
+    assert.ok(face.vertices.flat().every(Number.isFinite));
+    assert.match(face.color,/^#[0-9a-f]{6}$/);
+  }
+  const frontEdges=faces.flatMap(f=>f.vertices.filter(p=>p[2]===16));
+  assert.ok(frontEdges.every(p=>Math.abs(Math.abs(p[0])-100*.965)<1e-8));
 });
 
 test('all original obstacle sprites turn smoothly with the camera, retain height and keep depth within their lane',()=>{
