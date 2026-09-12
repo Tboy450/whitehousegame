@@ -28,6 +28,8 @@
   const currentSceneIndex = () => game.transitionProgress >= .5 ? game.transition.to : game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
   const activeJumpInputs = new Set();
+  let touchTap=null,lastTouchTap=null;
+  const clearTapGesture=()=>{touchTap=null;lastTouchTap=null;};
   try { best = Math.max(0, Math.floor(Number(localStorage.getItem('trumpElonHighScore')) || 0)); } catch (_) {}
   if (!Number.isFinite(best)) best = 0;
   const pad = value => String(value).padStart(5, '0');
@@ -77,6 +79,7 @@
     } catch (_) { /* Sound is optional; unsupported audio must not stop the run. */ }
   }
   function setState(next) {
+    clearTapGesture();
     shownHUD = '';
     state = next; $('gameContainer').className = 'game-shell is-' + state;
     $('startScreen').hidden = state !== 'menu'; $('crewLabel').hidden = state !== 'menu';
@@ -178,6 +181,7 @@
     for(const id of ['viewButton','menuViewButton','pauseViewButton'])$(id).setAttribute('aria-label','Current view: '+label+'. Change camera perspective.');
   }
   function changeView(){
+    clearTapGesture();
     view=VIEWS[(VIEWS.findIndex(v=>v.id===view)+1)%VIEWS.length].id;
     if(reducedMotion||state!=='playing'||view==='classic')cameraBlend=view==='chase'?1:0;
     try{localStorage.setItem('rocketRunView',view);}catch(_){}
@@ -223,13 +227,32 @@
   });
   window.addEventListener('keyup', event => { if (['Space','ArrowUp','KeyW'].includes(event.code)) release(event.code); });
   stage.addEventListener('pointerdown', event => {
-    if (event.target.closest('button') || state !== 'playing' || (event.pointerType === 'mouse' && event.button !== 0)) return;
-    event.preventDefault(); stage.setPointerCapture(event.pointerId); jump('pointer-' + event.pointerId);
+    if (event.target.closest('button') || state !== 'playing' || (event.pointerType === 'mouse' && event.button !== 0)) {clearTapGesture();return;}
+    event.preventDefault(); stage.setPointerCapture(event.pointerId);
+    const touch=event.pointerType==='touch'||event.pointerType==='pen';
+    if(touch&&event.isPrimary!==false){
+      const now=performance.now(),x=event.clientX??0,y=event.clientY??0;
+      const doubleTap=lastTouchTap&&lastTouchTap.type===event.pointerType&&now-lastTouchTap.start<=260&&Math.hypot(x-lastTouchTap.x,y-lastTouchTap.y)<=36;
+      lastTouchTap=null;
+      if(doubleTap){changeView();return;}
+      touchTap={id:event.pointerId,type:event.pointerType,start:now,x,y,moved:false};
+    }else clearTapGesture();
+    // The first tap jumps immediately; recognizing a second tap adds no input lag.
+    jump('pointer-' + event.pointerId);
   });
-  const releasePointer = event => release('pointer-' + event.pointerId);
-  window.addEventListener('pointerup', releasePointer);
-  window.addEventListener('pointercancel', releasePointer);
-  stage.addEventListener('lostpointercapture', releasePointer);
+  stage.addEventListener('pointermove',event=>{
+    if(touchTap?.id===event.pointerId&&Math.hypot((event.clientX??0)-touchTap.x,(event.clientY??0)-touchTap.y)>24)touchTap.moved=true;
+  });
+  const releasePointer = (event,cancelled=false) => {
+    release('pointer-' + event.pointerId);
+    if(touchTap?.id!==event.pointerId)return;
+    const tap=touchTap;touchTap=null;
+    const close=Math.hypot((event.clientX??0)-tap.x,(event.clientY??0)-tap.y)<=24;
+    lastTouchTap=!cancelled&&!tap.moved&&close&&state==='playing'&&performance.now()-tap.start<=180?tap:null;
+  };
+  window.addEventListener('pointerup',event=>releasePointer(event));
+  window.addEventListener('pointercancel',event=>releasePointer(event,true));
+  stage.addEventListener('lostpointercapture',event=>releasePointer(event,true));
   window.addEventListener('blur', () => { if (state === 'playing') pause(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') pause(); });
 

@@ -25,7 +25,7 @@
           <button id="pauseButton" class="tool-button" type="button" aria-label="Pause game" disabled>PAUSE <span aria-hidden="true">Ⅱ</span></button>
         </div>
       </div>
-      <div id="stage" class="stage" tabindex="0" role="region" aria-label="Game field. Space or up arrow to jump; hold for a higher jump. P to pause.">
+      <div id="stage" class="stage" tabindex="0" role="region" aria-label="Game field. Space, up arrow or tap to jump; hold for a higher jump. Quick double-tap or C to change view. P to pause.">
         <canvas id="gameCanvas" width="1200" height="570" aria-label="Both riders fly on a horizontal rocket, jumping over a scrolling desert." role="img"></canvas>
         <div id="hud" class="hud" aria-label="Run statistics">
           <div class="hud-item best"><span>PERSONAL BEST</span><strong id="highScore">00000</strong></div>
@@ -49,7 +49,7 @@
           <button id="lockheedButton" type="button" aria-pressed="false" aria-label="Lockheed Martin, Skunk Works"><span>04</span> LOCKHEED</button>
           <button id="spacexButton" type="button" aria-pressed="false" aria-label="SpaceX Starbase"><span>05</span> SPACEX</button>
         </fieldset>
-        <div id="runHint" class="run-hint" hidden><kbd>SPACE</kbd> or tap to jump · <kbd>C</kbd> / VIEW to change camera</div>
+        <div id="runHint" class="run-hint" hidden><kbd>SPACE</kbd> / tap: jump · <kbd>C</kbd> / double-tap: view</div>
         <div id="milestone" class="milestone" aria-live="polite"></div>
         <div id="pauseScreen" class="overlay" hidden>
           <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
@@ -81,7 +81,7 @@
     <footer class="controls-footer">
       <div class="control-group"><span class="control-number">01</span><p><strong>Jump the obstacles</strong><span><kbd>SPACE</kbd> / <kbd>↑</kbd> / TAP</span></p></div>
       <div class="control-group"><span class="control-number">02</span><p><strong>Get a little more airtime</strong><span>HOLD TO JUMP HIGHER</span></p></div>
-      <div class="control-group"><span class="control-number">03</span><p><strong>A new angle on every run</strong><span>C / VIEW: ANGLE · CHASE · CLASSIC</span></p></div>
+      <div class="control-group"><span class="control-number">03</span><p><strong>A new angle on every run</strong><span>C / VIEW / QUICK DOUBLE-TAP</span></p></div>
     </footer>
     <div class="page-footnote"><span>INSPIRED BY THE CLASSIC OFFLINE RUNNER.</span><span>A LITTLE LESS PREHISTORIC. A LOT MORE ROCKET.</span></div>
   </main>

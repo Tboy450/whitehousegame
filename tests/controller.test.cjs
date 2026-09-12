@@ -219,6 +219,50 @@ test('C and phone view buttons cycle all perspectives without changing a jump or
   app.dispatch(app.window,'keyup',{code:'Space'});app.frames(70);assert.equal(runner.player.airborne,false);
 });
 
+test('a quick double-tap cycles views with an immediate first jump and no second jump input',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner{constructor(){super(()=>0);runner=this;}}
+  const app=setup({initialView:'angle',engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;
+  const finger={pointerType:'touch',pointerId:1,isPrimary:true,clientX:160,clientY:220};
+  for(const next of ['chase','classic','angle']){
+    app.dispatch(get('stage'),'pointerdown',finger);
+    assert.ok(runner.player.airborne,'a single tap never waits for a second tap');
+    app.frames(2);app.dispatch(app.window,'pointerup',finger);
+    // Browsers release capture after pointerup; this must preserve a completed tap.
+    app.dispatch(get('stage'),'lostpointercapture',finger);app.frames(2);
+    const before=JSON.stringify(runner);
+    app.dispatch(get('stage'),'pointerdown',{...finger,clientX:169,clientY:216});
+    assert.equal(get('gameContainer').dataset.view,next);assert.equal(app.store.rocketRunView,next);
+    assert.equal(JSON.stringify(runner),before,'the camera gesture cannot queue another jump');
+    app.dispatch(app.window,'pointerup',finger);
+    app.frames(1);app.dispatch(get('stage'),'pointerdown',finger);app.dispatch(app.window,'pointerup',finger);
+    assert.equal(get('gameContainer').dataset.view,next,'a triple tap only changes the view once');
+    app.frames(30);
+  }
+});
+
+test('slow taps, holds, drags, cancellations, multiple fingers and menu actions do not trigger camera gestures',()=>{
+  for(const scenario of ['slow','hold','drag','far','cancel','lost','multitouch','mouse','pause','button']){
+    const app=setup({initialView:'classic'}),get=id=>app.nodes.get(id);
+    app.dispatch(get('startButton'),'click');
+    const finger={pointerType:scenario==='mouse'?'mouse':'touch',button:0,pointerId:1,isPrimary:true,clientX:160,clientY:220};
+    app.dispatch(get('stage'),'pointerdown',finger);app.frames(scenario==='hold'?13:2);
+    if(scenario==='drag'){
+      app.dispatch(get('stage'),'pointermove',{...finger,clientX:220});
+      app.dispatch(get('stage'),'pointermove',finger);
+    }
+    if(scenario==='multitouch')app.dispatch(get('stage'),'pointerdown',{...finger,pointerId:2,isPrimary:false});
+    if(scenario==='lost')app.dispatch(get('stage'),'lostpointercapture',finger);
+    app.dispatch(app.window,scenario==='cancel'?'pointercancel':'pointerup',finger);
+    if(scenario==='pause'){app.dispatch(get('pauseButton'),'click');app.dispatch(get('resumeButton'),'click');}
+    if(scenario==='button')app.dispatch(get('stage'),'pointerdown',{...finger,target:get('resumeButton')});
+    app.frames(scenario==='slow'?20:1);
+    app.dispatch(get('stage'),'pointerdown',{...finger,clientX:scenario==='far'?230:160});
+    assert.equal(get('gameContainer').dataset.view,'classic',scenario);
+  }
+});
+
 test('3D scene fades survive camera changes, pausing and phone resizing with the same hazard-free transition',()=>{
   let runner;
   class ControlledRunner extends core.Runner{constructor(){super();runner=this;}}
