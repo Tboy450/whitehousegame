@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {Art,SCENES}=require('../game-art.js');
+const {Art,SCENES,ObstacleSprites}=require('../game-art.js');
 const {Runner,SECTOR_IDS,OBSTACLES}=require('../game-core.js');
 
 function context() {
@@ -70,4 +70,33 @@ test('scenery has stable positions, varied spacing and bases inside the rear gro
 test('reserve crew draws valid geometry without any external image',()=>{
   const ctx=context(),art=new Art(ctx);art.reserveCrew(154,464,200);
   assert.equal(ctx.stack,0);assert.ok(ctx.commands.length>40);
+});
+
+test('perspective obstacle textures reuse classic art, cache by palette and repaint only animation frames',()=>{
+  const canvases=[];
+  const sprites=new ObstacleSprites(()=>{
+    const c=context();c.clearRect=(...args)=>c.commands.push(['clearRect',...args]);
+    const fillRect=c.fillRect;c.fillRect=(...args)=>{fillRect(...args);c.commands.push(['color',c.fillStyle]);};
+    c.fill=()=>c.commands.push(['fill',c.fillStyle]);
+    c.drawImage=source=>c.commands.push(['drawImage',source]);
+    const canvas={getContext:()=>c};canvases.push(canvas);return canvas;
+  });
+  const signatures=new Set();
+  for(const kind of OBSTACLES){
+    const o={...kind,x:500,y:300,sector:'moon'},before=JSON.stringify(o);
+    const sprite=sprites.get(o,0),commands=sprite.ctx.commands;
+    assert.equal(sprite.image.width,128);assert.equal(sprite.side.width,128);
+    signatures.add(JSON.stringify(commands));
+    const draws=commands.length;
+    assert.equal(sprites.get({...o,x:200},.02),sprite);assert.equal(commands.length,draws);
+    sprites.get(o,1);
+    const animated=/rover|cart|chest|ufo|low_jet|jet_engine/.test(o.type);
+    assert.equal(commands.length>draws,animated);
+    assert.equal(sprite.ctx.stack,0);assert.equal(sprite.sideContext.globalCompositeOperation,'source-over');
+    assert.equal(sprites.get({...o,sector:'mars'},1),sprite);
+    assert.notEqual(sprites.get({...o,sector:'area51'},1),sprite);
+    assert.equal(JSON.stringify(o),before);
+  }
+  assert.equal(signatures.size,OBSTACLES.length);
+  assert.equal(sprites.cache.size,OBSTACLES.length*2);assert.equal(canvases.length,OBSTACLES.length*4);
 });

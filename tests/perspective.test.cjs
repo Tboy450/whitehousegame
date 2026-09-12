@@ -36,9 +36,11 @@ test('all 3D map themes and every hazard render finite geometry without mutating
       for(const value of args)if(typeof value==='number')assert.ok(Number.isFinite(value),key+' has a non-finite coordinate');
       if(key==='fill'){paths++;colors.add(o.fillStyle);}
     }),set:(o,key,value)=>(o[key]=value,true)});
-    const renderer=new Scene3D(context);
+    const image={width:128,height:128},side={width:128,height:128};let hazards=0;
+    const renderer=new Scene3D(context,{get(){hazards++;return {image,side};}});
     renderer.render({width:1200,height:570,palette,game,distance:1250,time:12,blend});
     assert.ok(paths>150);assert.ok(paths<3000,'keep geometry bounded for phone rendering');
+    assert.equal(hazards,OBSTACLES.length,'every foreground hazard uses the original-art provider');
     assert.equal(JSON.stringify(game),before);assert.equal(renderer.faces.length,0);
     paletteSignatures[blend].add([...colors].sort().join(','));
   }
@@ -53,10 +55,37 @@ test('the original crew texture and its depth layers stay in frame throughout bo
     renderer.width=width;renderer.height=height;renderer.rocket(altitude);
     const textured=renderer.faces.filter(f=>f.image);
     assert.equal(textured.filter(f=>f.image===image).length,48);
-    assert.equal(textured.filter(f=>f.image===depth).length,96);
+    assert.equal(textured.filter(f=>f.image===depth).length,384);
     for(const face of textured)for(const [x,y] of face.points){
       assert.ok(Number.isFinite(x)&&Number.isFinite(y));
       assert.ok(x>0&&x<width&&y>0&&y<height,JSON.stringify({width,height,blend,altitude,x,y}));
+    }
+  }
+});
+
+test('all original obstacle sprites turn smoothly with the camera, retain height and keep depth within their lane',()=>{
+  const image={width:128,height:128},side={width:128,height:128};
+  for(const kind of OBSTACLES){
+    let previousAxis;
+    for(const blend of [0,.25,.5,.75,1]){
+      const o={...kind,x:420,y:RULES.ground-kind.height-(kind.altitude||0),sector:'area51'};
+      const before=JSON.stringify(o),renderer=new Scene3D({},{get:()=>({image,side})});
+      renderer.camera=new Camera(1200,570,blend);renderer.viewBlend=blend;renderer.time=5;
+      const panels=[],originalPanel=renderer.spritePanel.bind(renderer);
+      renderer.spritePanel=(source,options)=>{panels.push({source,...options});originalPanel(source,options);};
+      renderer.hazard(o,254);
+      assert.equal(panels.length,7);assert.equal(panels.at(-1).source,image);
+      assert.ok(panels.slice(0,-1).every(p=>p.source===side));
+      const front=panels.at(-1);
+      assert.equal(front.y,kind.altitude||0);assert.equal(front.h,kind.height);
+      assert.equal(front.x,420-254+kind.width/2);
+      assert.ok(front.axis[0]>.85,'artwork keeps a forward heading');
+      if(previousAxis)assert.ok(Math.hypot(...front.axis.map((n,i)=>n-previousAxis[i]))<.25,'no abrupt turn while changing cameras');
+      previousAxis=front.axis;
+      const span=front.depth-panels[0].depth;assert.ok(span>=12&&span<=28,'visible thickness stays inside the route');
+      assert.equal(renderer.faces.filter(f=>f.image).length,112);
+      assert.ok(renderer.faces.flatMap(f=>f.points).flat().every(Number.isFinite));
+      assert.equal(JSON.stringify(o),before);
     }
   }
 });

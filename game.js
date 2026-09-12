@@ -12,17 +12,18 @@
   let gameOverAt = 0, width = 1200, height = 570, dpr = 1;
   let selectedScene = 0, shownScene = -1;
   let shownHUD = '';
-  const { Art, SCENES: scenes } = window.RocketArtwork;
+  const { Art, ObstacleSprites, SCENES: scenes } = window.RocketArtwork;
   const art = new Art(ctx);
   const {Scene3D,VIEWS}=window.Rocket3D;
-  const scene3D=new Scene3D(ctx);
+  const obstacleSprites=new ObstacleSprites(()=>document.createElement('canvas'));
+  const scene3D=new Scene3D(ctx,obstacleSprites);
   let view='angle',cameraBlend=0;
   try{const saved=localStorage.getItem('rocketRunView');if(VIEWS.some(v=>v.id===saved))view=saved;}catch(_){}
   cameraBlend=view==='chase'?1:0;
   const transitionCanvas = document.createElement('canvas');
   const transitionContext = transitionCanvas.getContext('2d');
   const transitionArt = new Art(transitionContext);
-  const transition3D = new Scene3D(transitionContext);
+  const transition3D = new Scene3D(transitionContext,obstacleSprites);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
   const currentSceneIndex = () => game.transitionProgress >= .5 ? game.transition.to : game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
@@ -36,12 +37,12 @@
   let crewTexture=null,crewDepth=null;
   crew.onload = () => {
     // Keep the original PNG intact. These in-memory textures reuse its silhouette
-    // for a shallow extrusion, shared by both 3D scene renderers.
+    // for a shaded extrusion, shared by both 3D scene renderers.
     crewTexture=document.createElement('canvas');crewTexture.width=crew.naturalWidth;crewTexture.height=crew.naturalHeight;
     crewTexture.getContext('2d').drawImage(crew,0,0);
     crewDepth=document.createElement('canvas');crewDepth.width=crew.naturalWidth;crewDepth.height=crew.naturalHeight;
     const depth=crewDepth.getContext('2d');depth.drawImage(crew,0,0);
-    depth.globalCompositeOperation='source-in';depth.fillStyle='#283843';depth.fillRect(0,0,crewDepth.width,crewDepth.height);depth.globalCompositeOperation='source-over';
+    depth.globalCompositeOperation='source-atop';depth.fillStyle='rgba(20,35,43,.38)';depth.fillRect(0,0,crewDepth.width,crewDepth.height);depth.globalCompositeOperation='source-over';
     ready = true; $('assetError').hidden = true;
   };
   crew.onerror = () => { $('assetError').hidden = false; };

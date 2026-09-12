@@ -1,6 +1,6 @@
 # Rocket Run — Trump & Elon
 
-A one-button desert runner inspired by the Chrome offline dinosaur game, with a classic horizontal view and two low-poly 3D perspectives. Both riders stay seated on the same rocket throughout the run.
+A one-button desert runner inspired by the Chrome offline dinosaur game, with a classic horizontal view and two 3D perspectives. Both riders stay seated on the same rocket throughout the run.
 
 ## Play
 
@@ -18,9 +18,11 @@ A one-button desert runner inspired by the Chrome offline dinosaur game, with a 
 
 ## Camera perspectives
 
-The default 3D Angle view shows a horizontal rocket with depth, shaded geometry and ground shadows. 3D Chase looks down the route from behind the crew. Both 3D views reuse the original detailed crew PNG on perspective-mapped panels with shallow shaded edges, preserving the original hair, outfits, rocket proportions and teal window. The angled view tilts the artwork slightly toward the camera; that tilt eases away when switching to chase, aligning the rocket and riders with the route ahead. This is a layered 2.5D illusion within the 3D world; the simpler geometric crew remains available while the image loads. Classic retains the original side-on pixel artwork. Desktop players can press C during a jump; switching cameras preserves position, velocity, obstacles, score and pause state. Reduced-motion mode switches cameras immediately.
+The default 3D Angle view shows a horizontal rocket with depth, shaded geometry and ground shadows. 3D Chase looks down the route from behind the crew. Both 3D views reuse the original detailed crew PNG on perspective-mapped panels with rounded, colored depth layers and a beveled front, preserving the original hair, outfits, rocket proportions and teal window. The angled view tilts the artwork slightly toward the camera; that tilt eases away when switching to chase, aligning the rocket and riders with the route ahead. This is a layered 2.5D illusion within the 3D world; the simpler geometric crew remains available while the image loads. Classic retains the original side-on pixel artwork. Desktop players can press C during a jump; switching cameras preserves position, velocity, obstacles, score and pause state. Reduced-motion mode switches cameras immediately.
 
-Inspired by the perspective concept in [3D Dino Run](https://www.y8.com/games/3d_dino_run), the 3D world uses original low-poly hazards, landers, habitats, hangars, jets, saucers and Starbase towers. The renderer projects actual 3D coordinates onto Canvas 2D, clips the near plane and sorts surfaces and textured triangles by depth. The original image file stays unchanged; its depth masks exist only in memory. It needs no WebGL library, remote model downloads or additional network dependencies. Camera framing is checked numerically across phone and desktop aspect ratios; the revised character was also inspected in both 3D views in a 370-pixel-wide browser preview. Physical-phone performance testing remains to be done.
+All 22 foreground hazards reuse the classic obstacle drawing code on small cached textures with shaded depth layers and ground shadows. Vehicles turn more toward the route in chase view; other shapes keep a wider face for readability. Wheels, engine fans, exhaust and saucer lights retain their animations at 12 texture updates per second, while static designs are drawn once. Both scene renderers share the cache, and obstacle positions, dimensions, flight heights and collisions still come from the same simulation.
+
+Inspired by the perspective concept in [3D Dino Run](https://www.y8.com/games/3d_dino_run), the background uses original low-poly landers, habitats, hangars, jets, saucers and Starbase towers. The renderer projects actual 3D coordinates onto Canvas 2D, clips the near plane and sorts surfaces and textured triangles by depth. The original image file stays unchanged; shaded textures exist only in memory. It needs no WebGL library, remote model downloads or additional network dependencies. Camera framing is checked numerically across phone and desktop aspect ratios. An earlier character revision was inspected in both 3D views in a 370-pixel-wide browser preview; the latest depth and obstacle changes have automated coverage. Physical-phone performance testing remains to be done.
 
 ## Desktop shortcut
 
@@ -78,7 +80,7 @@ The static build goes to `dist/`. Hosting metadata is in `.openai/hosting.json`.
 
 ## Validation
 
-41 automated checks cover all 22 hazards' clearability on levels 1, 2, 6 and 12; continuous collisions at high speed; three full circuits from every start; proportional speed, spacing and distance; keyboard/touch controls; pause/restart; image/storage failures; and independent visitors. Perspective checks cover camera switching mid-jump, all 3D map/hazard geometry, near-plane clipping, full-crew jump framing across aspect ratios, textured crew layers and their canvas transforms, and pause/resize/camera changes during a scene fade. Controller tests are not real-browser visual or accessibility testing.
+43 automated checks cover all 22 hazards' clearability on levels 1, 2, 6 and 12; continuous collisions at high speed; three full circuits from every start; proportional speed, spacing and distance; keyboard/touch controls; pause/restart; image/storage failures; and independent visitors. Perspective checks cover camera switching mid-jump, all 3D map/hazard geometry, near-plane clipping, full-crew jump framing across aspect ratios, textured crew layers and their canvas transforms, original obstacle textures and animation caching, smooth obstacle rotation with correct altitude and bounded thickness, and pause/resize/camera changes during a scene fade. Controller tests are not real-browser visual or accessibility testing.
 
 ## Credits and status
 

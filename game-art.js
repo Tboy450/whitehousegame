@@ -592,7 +592,33 @@
     }
   }
 
-  const api={Art,SCENES,OBSTACLE_TYPES};
+  // Reuse the classic artwork in perspective views. One small canvas pair per
+  // design/palette is shared by both scenes; only animated designs are repainted.
+  class ObstacleSprites {
+    constructor(createCanvas){this.createCanvas=createCanvas;this.cache=new Map();}
+    get(o,time=0){
+      const key=o.type+':' +(o.sector==='area51'?'area51':'default');
+      let sprite=this.cache.get(key);
+      if(!sprite){
+        const image=this.createCanvas(),side=this.createCanvas();
+        image.width=image.height=side.width=side.height=128;
+        const ctx=image.getContext('2d'),sideContext=side.getContext('2d');
+        sprite={image,side,ctx,sideContext,art:new Art(ctx),frame:-1};this.cache.set(key,sprite);
+      }
+      const animated=/rover|cart|chest|ufo|low_jet|jet_engine/.test(o.type);
+      const frame=animated?Math.floor(time*12):0;
+      if(frame!==sprite.frame){
+        sprite.ctx.clearRect(0,0,128,128);
+        sprite.art.obstacle({...o,x:0,y:0,width:128,height:128,altitude:0},frame/12);
+        const c=sprite.sideContext;c.clearRect(0,0,128,128);c.drawImage(sprite.image,0,0);
+        c.globalCompositeOperation='source-atop';c.fillStyle='rgba(20,35,43,.38)';c.fillRect(0,0,128,128);c.globalCompositeOperation='source-over';
+        sprite.frame=frame;
+      }
+      return sprite;
+    }
+  }
+
+  const api={Art,SCENES,OBSTACLE_TYPES,ObstacleSprites};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   else root.RocketArtwork=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

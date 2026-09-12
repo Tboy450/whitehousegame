@@ -35,22 +35,25 @@
     }
   }
   class Scene3D {
-    constructor(ctx){this.ctx=ctx;this.faces=[];}
+    constructor(ctx,obstacleSprites=null){this.ctx=ctx;this.obstacleSprites=obstacleSprites;this.faces=[];}
     textureTriangle(image,vertices,uv){
       const points=vertices.map(v=>this.camera.project(v));
       if(points.some(p=>!p))return;
       this.faces.push({image,points:points.map(p=>p.point),uv,depth:points.reduce((n,p)=>n+p.depth,0)/3});
     }
-    crewPanel(image,altitude,axis,depth){
-      const w=200,h=w*image.height/image.width,normal=[-axis[2],0,axis[0]];
-      const vertex=(u,v)=>[axis[0]*(u-.5)*w+normal[0]*depth,altitude-4+(1-v)*h,axis[2]*(u-.5)*w+normal[2]*depth];
+    spritePanel(image,{x=0,y=0,w,h,axis,depth,columns=4,rows=2,taper=1}){
+      const normal=[-axis[2],0,axis[0]];
+      const vertex=(u,v)=>[x+axis[0]*(u-.5)*w*taper+normal[0]*depth,y+(1-v)*h*taper,axis[2]*(u-.5)*w*taper+normal[2]*depth];
       // Subdivision keeps the original faces undistorted across a perspective plane.
-      for(let col=0;col<8;col++)for(let row=0;row<3;row++){
-        const u=col/8,v=row/3,U=(col+1)/8,V=(row+1)/3;
+      for(let col=0;col<columns;col++)for(let row=0;row<rows;row++){
+        const u=col/columns,v=row/rows,U=(col+1)/columns,V=(row+1)/rows;
         const a=vertex(u,v),b=vertex(U,v),c=vertex(U,V),d=vertex(u,V);
         const A=[u*image.width,v*image.height],B=[U*image.width,v*image.height],C=[U*image.width,V*image.height],D=[u*image.width,V*image.height];
         this.textureTriangle(image,[a,b,c],[A,B,C]);this.textureTriangle(image,[a,c,d],[A,C,D]);
       }
+    }
+    crewPanel(image,altitude,axis,depth,taper=1){
+      this.spritePanel(image,{y:altitude-4,w:200,h:200*image.height/image.width,axis,depth,columns:8,rows:3,taper});
     }
     paintTexture(face){
       const c=this.ctx,[a,b,d]=face.points,[A,B,D]=face.uv;
@@ -145,9 +148,13 @@
         // so the rocket and riders point down the route in chase view.
         const axis=unit(mix([1,0,0],this.camera.right,.30*(1-this.viewBlend)));
         const normal=[-axis[2],0,axis[0]];
-        this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*18,.35,axis[2]*u*77+normal[2]*v*18]),this.shadowColor);
-        if(this.crewDepth)for(const depth of [-7,-3])this.crewPanel(this.crewDepth,altitude,axis,depth);
-        this.crewPanel(this.crewImage,altitude,axis,2);
+        this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*25,.35,axis[2]*u*77+normal[2]*v*25]),this.shadowColor);
+        // A rounded stack retains the artwork's colors along a substantial side
+        // wall. The slightly inset front makes a bevel instead of a paper edge.
+        if(this.crewDepth)for(let depth=-16;depth<16;depth+=4){
+          this.crewPanel(this.crewDepth,altitude,axis,depth,1-.035*Math.pow(depth/16,2));
+        }
+        this.crewPanel(this.crewImage,altitude,axis,16,.965);
         return;
       }
       const y=altitude+27;
@@ -162,37 +169,22 @@
       this.rider(9,y+27,0,true);this.rider(-40,y+27,0,false);
     }
     hazard(o,origin){
-      const x=o.x-origin,w=o.width,h=o.height,y=o.altitude||0,z=-18;
-      this.shadow(x+w/2,0,w*.9,34);
-      if(o.type==='low_jet'){this.jet(x,y,0,w,h);return;}
-      if(o.type==='low_ufo'||o.type==='parked_ufo'){this.ufo(x,y,0,w,h);return;}
-      const rock=o.type==='moon_rock'||o.type==='red_basalt';
-      if(rock){this.tube(x+w/2,0,0,h,w*.52,o.type==='red_basalt'?'#b46b47':'#a3ad92','y',w*.22);return;}
-      if(o.type==='alien'){
-        this.box(x+w*.35,0,-6,w*.3,h*.5,12,'#709a79');
-        this.box(x+w*.12,h*.5,-13,w*.76,h*.47,26,'#a8c997');
-        this.box(x+w*.18,h*.67,13,7,9,1,'#243c3e');this.box(x+w*.61,h*.67,13,7,9,1,'#243c3e');return;
+      if(!this.obstacleSprites)return;
+      const sprite=this.obstacleSprites.get(o,this.time),w=o.width,h=o.height;
+      const x=o.x-origin+w/2,y=o.altitude||0;
+      const directional=/rover|cart|low_jet|booster_section/.test(o.type);
+      const round=/ufo|moon_rock|red_basalt/.test(o.type);
+      // Vehicles follow the route more closely; signs, machines and saucers
+      // keep a wider face so their classic silhouettes stay easy to identify.
+      const facing=directional?.30-.18*this.viewBlend:.40-.06*this.viewBlend;
+      const axis=unit(mix([1,0,0],this.camera.right,facing)),normal=[-axis[2],0,axis[0]];
+      const thickness=round?Math.min(w*.55,28):directional?Math.min(w*.38,24):Math.min(w*.45,20);
+      this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[x+axis[0]*u*w*.46+normal[0]*v*thickness*.65,.35,axis[2]*u*w*.46+normal[2]*v*thickness*.65]),this.shadowColor);
+      for(let i=0;i<6;i++){
+        const depth=thickness*(i/6-.5),taper=1-.04*Math.pow(depth/(thickness/2),2);
+        this.spritePanel(sprite.side,{x,y,w,h,axis,depth,taper});
       }
-      if(/tank|canister|engine|booster/.test(o.type)){
-        const horizontal=/jet_engine|booster/.test(o.type);
-        if(horizontal)this.tube(x,h*.5,0,w,h*.45,'#a5b7b6');
-        else this.tube(x+w/2,0,0,h,w*.42,'#acbabb','y',o.type==='rocket_engine'?w*.2:w*.42);
-        this.box(x+w*.2,h*.4,19,w*.5,7,2,'#e5b65e');return;
-      }
-      if(/camera|light|radar|mast/.test(o.type)){
-        this.box(x+w*.42,0,-4,w*.16,h*.65,8,'#526b75');
-        this.box(x,0,-19,w,5,38,'#617b83');
-        this.box(x+2,h*.55,z,w-4,h*.4,28,o.type==='studio_light'?'#f6d17d':'#78979f');
-        this.box(x+w*.25,h*.64,11,w*.48,h*.22,3,'#2f5a6b');
-        if(o.type==='film_camera')for(const dx of [.25,.7])this.tube(x+w*dx,h*.91,0,8,8,'#435764','y');return;
-      }
-      const cart=/rover|cart|chest/.test(o.type);
-      this.box(x,cart?9:0,z,w,h-(cart?14:0),36,o.type==='secret_crate'?'#657e66':o.type==='checkpoint'?'#e7c57a':'#b7bfad');
-      this.box(x+5,h*.48,19,w-10,9,2,'#416d7a');
-      if(cart){
-        for(const dx of [.18,.82])for(const dz of [-23,18])this.box(x+w*dx-6,0,dz,12,13,6,'#354751');
-        if(/rover|robot/.test(o.type)){this.box(x+w*.7,h*.7,-3,3,h*.27,6,'#4b6270');this.box(x+w*.62,h-7,-8,w*.25,7,16,'#e2d2a5');}
-      }
+      this.spritePanel(sprite.image,{x,y,w,h,axis,depth:thickness/2,taper:.96});
     }
     sign(x,z,text,p){
       this.box(x-48,0,z,4,60,4,p.ground);this.box(x+44,0,z,4,60,4,p.ground);
