@@ -12,6 +12,30 @@
   const mix=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
   const shade=(hex,factor)=>'#'+hex.slice(1).match(/../g).map(v=>Math.min(255,Math.round(parseInt(v,16)*factor)).toString(16).padStart(2,'0')).join('');
   function noise(n){const v=Math.sin(n*127.1+311.7)*43758.5453;return v-Math.floor(v);}
+  const CREW_COLUMNS=20,CREW_ROWS=12;
+  function crewVolume(u,v){
+    const dome=(x,y,rx,ry,depth)=>depth*Math.sqrt(Math.max(0,1-((u-x)/rx)**2-((v-y)/ry)**2));
+    const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+    const barrel=23*Math.sqrt(Math.max(0,1-((v-.70)/.165)**2))*smooth((u-.205)/.045)*(1-smooth((u-.77)/.025));
+    const cone=Math.max(0,Math.min(1,(.985-u)/.215));
+    const nose=u>=.77?23*cone*Math.sqrt(Math.max(0,1-((v-.685)/Math.max(.001,.145*cone))**2)):0;
+    // Different volumes for each head and torso, a cylindrical hull and a tapered
+    // nose. Fins, tie and exhaust keep a thin edge instead of becoming thick slabs.
+    return Math.max(1.5,barrel,nose,dome(.414,.19,.095,.18,13),dome(.653,.20,.125,.18,14),
+      dome(.39,.40,.10,.19,12),dome(.615,.44,.13,.20,14));
+  }
+  const crewDepthGrid=Array.from({length:CREW_ROWS+1},(_,y)=>Array.from({length:CREW_COLUMNS+1},(_,x)=>crewVolume(x/CREW_COLUMNS,y/CREW_ROWS)));
+  function crewSurfaceDepth(u,v){
+    const x=Math.min(CREW_COLUMNS-1,Math.floor(u*CREW_COLUMNS)),y=Math.min(CREW_ROWS-1,Math.floor(v*CREW_ROWS));
+    const U=u*CREW_COLUMNS-x,V=v*CREW_ROWS-y;
+    const a=crewDepthGrid[y][x],b=crewDepthGrid[y][x+1],c=crewDepthGrid[y+1][x+1],d=crewDepthGrid[y+1][x];
+    // Use the same triangle interpolation as the front mesh to join its edge.
+    return U>=V?a*(1-U)+b*(U-V)+c*V:a*(1-V)+c*U+d*(V-U);
+  }
+  function crewPoint(image,altitude,axis,[u,v],fraction,taper){
+    const depth=crewSurfaceDepth(u,v)*fraction,h=200*image.height/image.width;
+    return [axis[0]*(u-.5)*200*taper-axis[2]*depth,altitude-4+(1-v)*h*taper,axis[2]*(u-.5)*200*taper+axis[0]*depth];
+  }
   // Trace the opaque outline once, then bridge it with real side surfaces.
   // This avoids copying eyes, clothing and outlines onto every depth slice.
   function buildCrewHull({data,width,height}={}){
@@ -101,9 +125,9 @@
       if(points.some(p=>!p))return;
       this.faces.push({image,points:points.map(p=>p.point),uv,depth:points.reduce((n,p)=>n+p.depth,0)/3});
     }
-    spritePanel(image,{x=0,y=0,w,h,axis,depth,columns=4,rows=2,taper=1}){
+    spritePanel(image,{x=0,y=0,w,h,axis,depth,columns=4,rows=2,taper=1,surface=null}){
       const normal=[-axis[2],0,axis[0]];
-      const vertex=(u,v)=>[x+axis[0]*(u-.5)*w*taper+normal[0]*depth,y+(1-v)*h*taper,axis[2]*(u-.5)*w*taper+normal[2]*depth];
+      const vertex=surface||((u,v)=>[x+axis[0]*(u-.5)*w*taper+normal[0]*depth,y+(1-v)*h*taper,axis[2]*(u-.5)*w*taper+normal[2]*depth]);
       // Subdivision keeps the original faces undistorted across a perspective plane.
       for(let col=0;col<columns;col++)for(let row=0;row<rows;row++){
         const u=col/columns,v=row/rows,U=(col+1)/columns,V=(row+1)/rows;
@@ -112,13 +136,12 @@
         this.textureTriangle(image,[a,b,c],[A,B,C]);this.textureTriangle(image,[a,c,d],[A,C,D]);
       }
     }
-    crewPanel(image,altitude,axis,depth,taper=1){
-      this.spritePanel(image,{y:altitude-4,w:200,h:200*image.height/image.width,axis,depth,columns:8,rows:3,taper});
+    crewPanel(image,altitude,axis){
+      this.spritePanel(image,{axis,columns:CREW_COLUMNS,rows:CREW_ROWS,surface:(u,v)=>crewPoint(image,altitude,axis,[u,v],1,.965)});
     }
     crewSides(altitude,axis){
-      const normal=[-axis[2],0,axis[0]],h=200*this.crewImage.height/this.crewImage.width;
-      const vertex=([u,v],[depth,taper])=>[axis[0]*(u-.5)*200*taper+normal[0]*depth,altitude-4+(1-v)*h*taper,axis[2]*(u-.5)*200*taper+normal[2]*depth];
-      const rings=[[-16,.965],[-10,1],[10,1],[16,.965]],light=unit([-.35,.85,.55]);
+      const vertex=(uv,[fraction,taper])=>crewPoint(this.crewImage,altitude,axis,uv,fraction,taper);
+      const rings=[[-1,.965],[-.65,1],[.65,1],[1,.965]],light=unit([-.35,.85,.55]);
       for(const loop of this.crewHull||[])for(let i=0;i<loop.points.length;i++){
         const a=loop.points[i],b=loop.points[(i+1)%loop.points.length];
         for(let j=0;j<rings.length-1;j++){
@@ -225,7 +248,7 @@
         const normal=[-axis[2],0,axis[0]];
         this.face([[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>[axis[0]*u*77+normal[0]*v*25,.35,axis[2]*u*77+normal[2]*v*25]),this.shadowColor);
         this.crewSides(altitude,axis);
-        this.crewPanel(this.crewImage,altitude,axis,16,.965);
+        this.crewPanel(this.crewImage,altitude,axis);
         return;
       }
       const y=altitude+27;
@@ -240,10 +263,14 @@
       this.rider(9,y+27,0,true);this.rider(-40,y+27,0,false);
     }
     hazard(o,origin){
+      if(o.type==='low_jet'){
+        this.shadow(o.x-origin+o.width/2,0,o.width*.9,34);
+        this.jet(o.x-origin,o.altitude||0,0,o.width,o.height);return;
+      }
       if(!this.obstacleSprites)return;
       const sprite=this.obstacleSprites.get(o,this.time),w=o.width,h=o.height;
       const x=o.x-origin+w/2,y=o.altitude||0;
-      const directional=/rover|cart|low_jet|booster_section/.test(o.type);
+      const directional=/rover|cart|booster_section/.test(o.type);
       const round=/ufo|moon_rock|red_basalt/.test(o.type);
       // Vehicles follow the route more closely; signs, machines and saucers
       // keep a wider face so their classic silhouettes stay easy to identify.

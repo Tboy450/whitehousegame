@@ -40,7 +40,7 @@ test('all 3D map themes and every hazard render finite geometry without mutating
     const renderer=new Scene3D(context,{get(){hazards++;return {image,side};}});
     renderer.render({width:1200,height:570,palette,game,distance:1250,time:12,blend});
     assert.ok(paths>150);assert.ok(paths<3000,'keep geometry bounded for phone rendering');
-    assert.equal(hazards,OBSTACLES.length,'every foreground hazard uses the original-art provider');
+    assert.equal(hazards,OBSTACLES.length-1,'all hazards except the original 3D jet use the sprite provider');
     assert.equal(JSON.stringify(game),before);assert.equal(renderer.faces.length,0);
     paletteSignatures[blend].add([...colors].sort().join(','));
   }
@@ -55,7 +55,7 @@ test('one original crew front and connected sides stay in frame throughout both 
     renderer.viewBlend=blend;renderer.crewImage=image;renderer.crewHull=hull;renderer.shadowColor='#667766';
     renderer.width=width;renderer.height=height;renderer.rocket(altitude);
     const textured=renderer.faces.filter(f=>f.image);
-    assert.equal(textured.length,48,'the detailed artwork appears on one front only');
+    assert.equal(textured.length,480,'the detailed artwork appears on one curved front only');
     assert.ok(textured.every(f=>f.image===image));
     assert.ok(renderer.faces.filter(f=>!f.image).length>1,'solid side walls accompany the front');
     for(const face of renderer.faces)for(const [x,y] of face.points){
@@ -91,12 +91,13 @@ test('crew side surfaces connect the back to the front bevel without repeated te
   renderer.crewSides(25,[1,0,0]);
   assert.ok(faces.length>0&&faces.length<=12);
   const depthPairs=new Set(faces.map(f=>[...new Set(f.vertices.map(p=>p[2]))].sort((a,b)=>a-b).join(',')));
-  assert.ok(depthPairs.has('-16,-10'));assert.ok(depthPairs.has('-10,10'));assert.ok(depthPairs.has('10,16'));
+  assert.ok(depthPairs.size>=2&&depthPairs.size<=3,'continuous middle and front bevel connect; hidden back faces may be culled');
   for(const face of faces){
     assert.ok(face.vertices.flat().every(Number.isFinite));
     assert.match(face.color,/^#[0-9a-f]{6}$/);
   }
-  const frontEdges=faces.flatMap(f=>f.vertices.filter(p=>p[2]===16));
+  const frontDepth=Math.max(...faces.flatMap(f=>f.vertices.map(p=>p[2])));
+  const frontEdges=faces.flatMap(f=>f.vertices.filter(p=>p[2]===frontDepth));
   assert.ok(frontEdges.every(p=>Math.abs(Math.abs(p[0])-100*.965)<1e-8));
 });
 
@@ -111,6 +112,12 @@ test('all original obstacle sprites turn smoothly with the camera, retain height
       const panels=[],originalPanel=renderer.spritePanel.bind(renderer);
       renderer.spritePanel=(source,options)=>{panels.push({source,...options});originalPanel(source,options);};
       renderer.hazard(o,254);
+      if(kind.type==='low_jet'){
+        assert.equal(panels.length,0,'jets retain their solid 3D model');
+        assert.ok(renderer.faces.length>20);assert.ok(renderer.faces.every(f=>!f.image));
+        assert.ok(renderer.faces.flatMap(f=>f.points).flat().every(Number.isFinite));
+        assert.equal(JSON.stringify(o),before);continue;
+      }
       assert.equal(panels.length,7);assert.equal(panels.at(-1).source,image);
       assert.ok(panels.slice(0,-1).every(p=>p.source===side));
       const front=panels.at(-1);
@@ -132,7 +139,7 @@ test('perspective texturing uses finite transforms, preserves transparency and b
   const c={save(){stack++;},restore(){stack--;},beginPath(){},moveTo(){},lineTo(){},closePath(){},clip(){},
     transform(...args){assert.ok(args.every(Number.isFinite));},drawImage(source){assert.equal(source,image);draws++;}};
   const renderer=new Scene3D(c);renderer.camera=new Camera(1200,570,1);
-  renderer.crewPanel(image,80,[.8,0,.6],2);
+  renderer.crewPanel(image,80,[.8,0,.6]);
   for(const face of renderer.faces)renderer.paintTexture(face);
-  assert.equal(draws,48);assert.equal(stack,0);assert.equal(c.imageSmoothingEnabled,false);
+  assert.equal(draws,480);assert.equal(stack,0);assert.equal(c.imageSmoothingEnabled,false);
 });
