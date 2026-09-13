@@ -34,6 +34,21 @@
     return ((n^(n>>>16))>>>0)/4294967296;
   }
 
+  // Classic owns the route: every renderer consumes this same ordered placement.
+  function sceneryLayout(id,distance,left=0,right=1200){
+    const scroll=distance*.19,cellWidth=390,items=[];
+    for(let cell=Math.max(0,Math.floor((scroll+left)/cellWidth)-1);cell*cellWidth-scroll<right;cell++){
+      const seed=cell+SCENES.findIndex(scene=>scene.id===id)*127;
+      const variant=(cell*5+Math.floor(cell/6)*3)%6,size=.72+sceneryNoise(seed,1)*.25;
+      const sourceWidth=LANDMARK_WIDTHS[id][variant],footprint=sourceWidth*size;
+      items.push({cell,variant,size,sourceWidth,footprint,visible:cell%9!==7,
+        x:cell*cellWidth-scroll+16+sceneryNoise(seed,2)*(cellWidth-footprint-48),
+        elevation:29-sceneryNoise(seed,3)*13,depth:260+sceneryNoise(seed,3)*160,
+        cactus:sceneryNoise(seed,4)>.48?{x:cell*cellWidth-scroll+cellWidth-24,size:.28+sceneryNoise(seed,5)*.22}:null});
+    }
+    return items;
+  }
+
   class Art {
     constructor(ctx) { this.ctx = ctx; }
     rect(x,y,w,h,color) {
@@ -299,12 +314,13 @@
             }
             case 3: {
               c.translate(-752,0);
-              this.hangar(752,0,208,75,'#a6b7b9','#81969c','ENGINE TEST');
+              this.hangar(752,0,208,75,'#a6b7b9','#81969c','');
               this.orb(856,-38,27,'#cad5cf');this.orb(856,-38,20,'#879fa5');
               for(let i=0;i<5;i++){
               const angle=i*Math.PI*2/5+(reduced?0:time*.7);
               this.line([[856,-38],[856+Math.cos(angle)*17,-38+Math.sin(angle)*17]],'#b8c7c4',4);
               }
+              this.rect(806,-74,100,15,'#a6b7b9');this.text('ENGINE TEST',856,-63,'#536f78',10,'center');
               break;
             }
             case 4: {
@@ -326,10 +342,11 @@
           switch(variant) {
             case 0: {
               c.translate(-15,0);
-              this.hangar(15,0,333,125,'#bdd0ce','#8dacae','STARFACTORY');
+              this.hangar(15,0,333,125,'#bdd0ce','#8dacae','');
               this.rect(40,-119,274,9,'#dbe4da');
               for(let i=0;i<4;i++)this.rect(54+i*67,-87,41,84,'#aac5c4');
               this.booster(120,-5,.57,'#d3dfd9','#a0b9ba');this.booster(225,-5,.57,'#d3dfd9','#a0b9ba');
+              this.rect(91,-123,181,18,'#dbe4da');this.text('STARFACTORY',181,-110,'#617e80',12,'center');
               break;
             }
             case 1: {
@@ -367,25 +384,18 @@
     }
 
     landmarks(id,width,ground,distance,p,time,reduced) {
-      const c=this.ctx,scroll=distance*.19,cellWidth=390;
-      const first=Math.floor(scroll/cellWidth)-1;
-      for(let cell=first;cell*cellWidth-scroll<width;cell++) {
-        if(cell<0)continue;
-        const seed=cell+SCENES.findIndex(scene=>scene.id===id)*127;
-        const variant=(cell*5+Math.floor(cell/6)*3)%6;
-        const size=.72+sceneryNoise(seed,1)*.25;
-        const footprint=LANDMARK_WIDTHS[id][variant]*size;
-        const x=cell*cellWidth-scroll+16+sceneryNoise(seed,2)*(cellWidth-footprint-48);
-        const y=ground-29+sceneryNoise(seed,3)*13;
+      const c=this.ctx;
+      for(const item of sceneryLayout(id,distance,0,width)) {
+        const {variant,size,footprint,x,elevation,cactus}=item,y=ground-elevation;
         // Occasional open stretches break up the facilities; positions stay stable as they scroll.
-        if(cell%9!==7) {
+        if(item.visible) {
           c.save();c.translate(Math.round(x),Math.round(y));
           c.globalAlpha=.32;this.rect(-5,-2,footprint+10,3,p.ground);c.globalAlpha=1;
           c.scale(size,size);this.landmark(id,variant,p,time,reduced);c.restore();
         }
-        if(sceneryNoise(seed,4)>.48) {
-          const bx=cell*cellWidth-scroll+cellWidth-24,by=ground-12;
-          this.cactus(bx,by,.28+sceneryNoise(seed,5)*.22,p.cactus);
+        if(cactus) {
+          const bx=cactus.x,by=ground-12;
+          this.cactus(bx,by,cactus.size,p.cactus);
           this.rect(bx-2,by-1,16,2,p.speck);
         }
       }
@@ -408,15 +418,24 @@
         c.globalAlpha=.62;this.cloud(x,60+(i*57)%115,.6+(i%3)*.25,p);
       }
       c.globalAlpha=1;
-      // Far horizon. Martian canyons and the coastal launch site have different silhouettes.
-      if(p.id==='spacex'){
-        this.rect(0,ground-28,width,29,'#d2e5df');this.rect(0,ground-23,width,2,'#bcd7d2');
-        for(let i=0;i<12;i++)this.rect((i*147-distance*.1)%width,ground-18+(i%3)*5,63,1,'#b8d6d2');
-      } else for(let i=0;i<6;i++){
+      // High block-cut ridges sit behind a lower band of rounded desert mounds.
+      const ridgeBase=ground-36;
+      for(let i=0;i<Math.ceil(width/370)+2;i++){
         const x=((i*370-distance*.11)%(width+500)+width+500)%(width+500)-250;
-        const h=mars?93+(i%3)*36:38+(i%3)*19;
-        this.poly([[x,ground],[x,ground-10],[x+35,ground-10],[x+35,ground-h*.5],[x+65,ground-h*.5],[x+65,ground-h],[x+130,ground-h],[x+130,ground-h*.7],[x+154,ground-h*.7],[x+154,ground-15],[x+210,ground-15],[x+210,ground]],p.ridge);
-        if(mars){this.rect(x+65,ground-h+13,65,5,p.ridgeShadow);this.rect(x+35,ground-h*.5+9,119,3);this.rect(x+110,ground-h+18,20,h-18);}
+        const h=Math.min(ground*.57,(mars?158:128)+(i%3)*23);
+        this.poly([[x,ridgeBase],[x,ridgeBase-14],[x+35,ridgeBase-14],[x+35,ridgeBase-h*.5],[x+65,ridgeBase-h*.5],[x+65,ridgeBase-h],[x+150,ridgeBase-h],[x+150,ridgeBase-h*.72],[x+188,ridgeBase-h*.72],[x+188,ridgeBase-18],[x+250,ridgeBase-18],[x+250,ridgeBase]],p.ridge);
+        this.rect(x+65,ridgeBase-h+18,85,4,p.ridgeShadow);
+        if(mars)this.rect(x+35,ridgeBase-h*.5+12,153,3,p.ridgeShadow);
+      }
+      for(let i=0;i<Math.ceil(width/290)+2;i++){
+        const x=((i*290-distance*.14)%(width+340)+width+340)%(width+340)-170;
+        const h=Math.min(ground*.25,43+(i%3)*14),w=170+(i%2)*42;
+        this.poly([[x,ridgeBase],[x+w*.12,ridgeBase-h*.42],[x+w*.29,ridgeBase-h*.82],[x+w*.46,ridgeBase-h],[x+w*.62,ridgeBase-h*.95],[x+w*.81,ridgeBase-h*.56],[x+w,ridgeBase]],p.ridgeShadow);
+        this.poly([[x+w*.46,ridgeBase-h],[x+w*.62,ridgeBase-h*.95],[x+w*.81,ridgeBase-h*.56],[x+w,ridgeBase],[x+w*.65,ridgeBase]],p.ridge);
+      }
+      if(p.id==='spacex'){
+        this.rect(0,ground-52,width,17,'#d2e5df');this.rect(0,ground-49,width,2,'#bcd7d2');
+        for(let i=0;i<12;i++)this.rect((i*147-distance*.1)%width,ground-45+(i%2)*5,63,1,'#b8d6d2');
       }
       // A continuous rear apron sits beneath every prop, above the foreground track.
       this.rect(0,ground-36,width,height-ground+36,p.dust);
@@ -618,7 +637,37 @@
     }
   }
 
-  const api={Art,SCENES,OBSTACLE_TYPES,ObstacleSprites};
+  // Bake the actual Classic facades and captions, with padding around every edge.
+  // This removes a second, approximate set of buildings/signs from the 3D renderer.
+  class ScenerySprites {
+    constructor(createCanvas){this.createCanvas=createCanvas;this.cache=new Map();}
+    get(id,variant,time=0){
+      const key=id+':'+variant;
+      let sprite=this.cache.get(key);
+      if(!sprite){
+        const heights={moon:[82,122,78,74,154,78],mars:[40,104,88,88,78,64],
+          area51:[90,210,225,56,85,112],lockheed:[114,72,192,83,84,88],spacex:[135,216,80,80,84,36]};
+        const width=(id==='area51'&&variant===1?238:LANDMARK_WIDTHS[id][variant])+16,height=heights[id][variant]+16;
+        const image=this.createCanvas();image.width=width*2;image.height=height*2;
+        const ctx=image.getContext('2d');
+        sprite={image,ctx,art:new Art(ctx),width,height,left:-8,top:height-8,sourceWidth:LANDMARK_WIDTHS[id][variant],frame:-1,hull:null};
+        this.cache.set(key,sprite);
+      }
+      const animated=(id==='area51'&&(variant===1||variant===2))||(id==='lockheed'&&(variant===3||variant===5))||(id==='moon'&&variant===0)||(id==='mars'&&variant===2);
+      const frame=animated?Math.floor(time*12):0;
+      if(sprite.frame!==frame){
+        const c=sprite.ctx;c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,sprite.image.width,sprite.image.height);
+        c.save();c.translate(16,sprite.top*2);c.scale(2,2);
+        sprite.art.landmark(id,variant,SCENES.find(p=>p.id===id),frame/12,!animated);c.restore();
+        sprite.frame=frame;
+        // Only the hovering saucer changes its outline; other animated details are internal.
+        if(id==='area51'&&variant===2)sprite.hull=null;
+      }
+      return sprite;
+    }
+  }
+
+  const api={Art,SCENES,OBSTACLE_TYPES,ObstacleSprites,ScenerySprites,sceneryLayout};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   else root.RocketArtwork=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

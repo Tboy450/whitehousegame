@@ -2,6 +2,7 @@
    The same Runner simulation drives every camera; changing views never moves a collider. */
 (function(root){
   'use strict';
+  const {ScenerySprites,sceneryLayout}=typeof module!=='undefined'&&module.exports?require('./game-art.js'):root.RocketArtwork;
   const VIEWS=Object.freeze([
     {id:'angle',label:'3D ANGLE'}, {id:'chase',label:'3D CHASE'}, {id:'classic',label:'CLASSIC'}
   ]);
@@ -131,7 +132,7 @@
   class Scene3D {
     constructor(ctx,obstacleSprites=null){
       this.ctx=ctx;this.obstacleSprites=obstacleSprites;this.faces=[];this.model=null;
-      this.signTextures=obstacleSprites?(obstacleSprites.signTextures||=new Map()):new Map();
+      this.scenerySprites=obstacleSprites?.createCanvas?(obstacleSprites.scenerySprites||=new ScenerySprites(obstacleSprites.createCanvas)):null;
     }
     modelPoint(p){return this.model?[p[0]*this.model.scale+this.model.x,p[1]*this.model.scale,p[2]*this.model.scale+this.model.z]:p;}
     textureTriangle(image,vertices,uv){
@@ -213,12 +214,14 @@
     }
     flush(){
       const c=this.ctx;this.faces.sort((a,b)=>b.depth-a.depth);
-      for(const face of this.faces){
-        if(face.image){this.paintTexture(face);continue;}
+      const paint=face=>{
+        if(face.group){face.group.forEach(paint);return;}
+        if(face.image){this.paintTexture(face);return;}
         c.fillStyle=face.color;
-        if(face.label){c.font='bold '+face.size+'px "Courier New", monospace';c.textAlign='center';c.fillText(face.label,...face.point);continue;}
+        if(face.label){c.font='bold '+face.size+'px "Courier New", monospace';c.textAlign='center';c.fillText(face.label,...face.point);return;}
         c.beginPath();face.points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.closePath();c.fill();
-      }
+      };
+      this.faces.forEach(paint);
       this.faces.length=0;
     }
     jet(x,y,z,w=70,h=25,d=54){
@@ -300,164 +303,60 @@
       }
       this.spritePanel(sprite.image,{x,y,w,h,axis,depth:thickness/2,taper:.96+.04*this.camera.side});
     }
-    beam(a,b,width,color){
-      const direction=unit(sub(b,a)),across=unit(cross(direction,Math.abs(direction[1])>.9?[1,0,0]:[0,1,0]));
-      for(const axis of [across,cross(direction,across)]){
-        const shift=(p,n)=>p.map((v,i)=>v+axis[i]*width*n/2);
-        this.face([shift(a,-1),shift(a,1),shift(b,1),shift(b,-1)],color);
+    landmark(x,z,variant,p,scale=1,elevation=0){
+      if(!this.scenerySprites)return;
+      const sprite=this.scenerySprites.get(p.id,variant,this.time);
+      const anchor=this.camera.project([x+sprite.sourceWidth*scale/2,elevation,z]);
+      if(!anchor)return;
+      if(sprite.hull===null){
+        const outline=sprite.outline||=this.scenerySprites.createCanvas();
+        const ratio=Math.min(1,192/sprite.width);
+        outline.width=Math.ceil(sprite.width*ratio);outline.height=Math.ceil(sprite.height*ratio);
+        const c=outline.getContext('2d');c.drawImage(sprite.image,0,0,outline.width,outline.height);
+        try{sprite.hull=buildCrewHull(c.getImageData(0,0,outline.width,outline.height));}catch(_){sprite.hull=[];}
       }
-    }
-    placard(lines,x,y,z,w,h,p){
-      const ink=p.id==='area51'?'#c7d9b3':'#52625d',paper=p.id==='area51'?'#354a4b':'#e3e4d6';
-      const key=p.id+':'+lines.join('|');let image=this.signTextures.get(key);
-      if(!image&&this.obstacleSprites?.createCanvas){
-        image=this.obstacleSprites.createCanvas();image.width=384;image.height=96;
-        const c=image.getContext('2d');c.fillStyle=ink;c.fillRect(0,0,384,96);
-        c.fillStyle=paper;c.fillRect(3,3,378,90);c.fillStyle=ink;c.textAlign='center';
-        c.font='bold '+(lines.length>1?24:30)+'px "Courier New", monospace';
-        lines.forEach((line,i)=>c.fillText(line,192,lines.length>1?37+i*33:58,366));
-        this.signTextures.set(key,image);
+      const depths={moon:[7,48,22,5,8,5],mars:[12,64,7,26,5,22],
+        area51:[80,12,88,40,5,7],lockheed:[90,50,45,75,8,6],spacex:[90,45,38,5,8,14]};
+      const depth=depths[p.id][variant]*scale*(1-this.camera.side);
+      // A modest turn toward the camera keeps the full Classic facade readable.
+      const sign={moon:[3,5],mars:[4],area51:[4,5],lockheed:[4],spacex:[3,4]}[p.id].includes(variant);
+      const axis=unit(mix([1,0,0],this.camera.right,(.18+(sign?.45:.25)*this.viewBlend)*(1-this.camera.side)));
+      const normal=[-axis[2],0,axis[0]];
+      const vertex=([u,v],back=0)=>{
+        const dx=(sprite.left+u*sprite.width-sprite.sourceWidth/2)*scale;
+        return [x+sprite.sourceWidth*scale/2+axis[0]*dx+normal[0]*back,
+          elevation+(sprite.top-v*sprite.height)*scale,z+axis[2]*dx+normal[2]*back];
+      };
+      const sceneFaces=this.faces;this.faces=[];
+      // The model turns around its facade, with its volume extending behind it.
+      // Use that same basis and back edge for a grounded contact shadow.
+      const foot=(along,back)=>{
+        const dx=(along-sprite.sourceWidth/2)*scale;
+        return [x+sprite.sourceWidth*scale/2+axis[0]*dx+normal[0]*back,
+          elevation+.2,z+axis[2]*dx+normal[2]*back];
+      };
+      const pad=1.5*scale;
+      this.face([foot(-1.5,pad),foot(sprite.sourceWidth+1.5,pad),
+        foot(sprite.sourceWidth+1.5,-depth-pad),foot(-1.5,-depth-pad)],this.shadowColor);
+      if(depth>0)for(const loop of sprite.hull)for(let i=0;i<loop.points.length;i++){
+        const a=loop.points[i],b=loop.points[(i+1)%loop.points.length];
+        const A=vertex(a,-depth),B=vertex(b,-depth),C=vertex(b),D=vertex(a);
+        const outward=unit(cross(sub(D,A),sub(B,A))),center=A.map((n,k)=>(n+B[k]+C[k]+D[k])/4);
+        if(dot(outward,sub(this.camera.eye,center))>0)this.face([A,D,C,B],shade(loop.colors[i],.8));
       }
-      if(image)this.spritePanel(image,{columns:4,rows:2,surface:(u,v)=>[x+(u-.5)*w,y+(1-v)*h,z]});
-      else lines.forEach((line,i)=>this.label(line,x,y+h*(.7-i*.35),z,11,ink));
+      this.faces.sort((a,b)=>b.depth-a.depth);
+      // Paint the complete illustrated front after its own sides. A board's
+      // average depth must never cover half of its subdivided lettering.
+      this.spritePanel(sprite.image,{columns:6,rows:3,surface:(u,v)=>vertex([u,v])});
+      const group=this.faces;this.faces=sceneFaces;
+      this.faces.push({group,depth:anchor.depth});
     }
-    sign(x,z,text,p){
-      const lines=Array.isArray(text)?text:[text],w=190;
-      this.box(x-w*.38,0,z,4,62,4,p.ground);this.box(x+w*.36,0,z,4,62,4,p.ground);
-      this.box(x-w/2,45,z-2,w,48,5,p.ground);
-      this.placard(lines,x,45,z+3.2,w,48,p);
-    }
-    hangar(x,z,w,h,name,p){
-      const body=p.id==='area51'?'#56676b':p.id==='spacex'?'#bdd0ce':'#a6b7b9',door=shade(body,.72),d=94;
-      this.shadow(x+w/2,z,w+16,d+16);this.box(x,0,z-d/2,w,h-14,d,body);
-      this.face([[x,h-14,z+d/2],[x+16,h,z+d/2],[x+w-16,h,z+d/2],[x+w,h-14,z+d/2]],body);
-      this.face([[x+16,h,z-d/2],[x+w-16,h,z-d/2],[x+w-16,h,z+d/2],[x+16,h,z+d/2]],shade(body,1.12));
-      this.face([[x,0,z+d/2+.2],[x+w,0,z+d/2+.2],[x+w,h-26,z+d/2+.2],[x,h-26,z+d/2+.2]],door);
-      for(let y=8;y<h-30;y+=13)this.face([[x+8,y,z+d/2+.4],[x+w-8,y,z+d/2+.4],[x+w-8,y+2,z+d/2+.4],[x+8,y+2,z+d/2+.4]],body);
-      this.placard([name],x+w/2,h-24,z+d/2+.6,w*.88,19,p);
-    }
-    dish(x,z,p){
-      this.shadow(x,z,66,44);this.box(x-4,0,z-4,8,45,8,p.ground);
-      const bowl=[[-32,71],[-23,52],[0,43],[24,52],[33,71],[20,60],[0,53],[-20,60]];
-      this.face(bowl.map(([dx,y])=>[x+dx,y,z+6]),p.ground);
-      this.face(bowl.map(([dx,y])=>[x+dx,y,z-8]),p.ridgeShadow);
-      this.beam([x,52,z+5],[x+10,80,z+13],3,p.ground);this.box(x+7,77,z+10,7,5,6,p.sun);
-    }
-    rover(x,z,p){
-      this.shadow(x+35,z,90,48);
-      for(const dx of [0,29,58])for(const dz of [-19,19])this.box(x+dx,0,z+dz-5,16,16,10,'#596b68');
-      this.box(x+3,15,z-18,69,22,36,p.id==='mars'?'#d5b48c':'#b6beaa');
-      this.box(x+9,32,z-21,43,4,42,'#8cabae');this.box(x+50,36,z-2,4,36,4,p.ground);
-      this.box(x+43,66,z-7,21,13,15,p.ground);this.box(x+45,70,z+8,13,5,1,'#b9d4cc');
-    }
-    solar(x,z,p){
-      for(let i=0;i<3;i++){
-        const at=x+i*50;this.box(at+19,0,z,4,29,4,p.ground);
-        this.face([[at,38,z-18],[at+44,38,z-18],[at+44,22,z+23],[at,22,z+23]],'#739193');
-        for(const u of [0,.33,.67,1])this.beam([at+u*44,38.3,z-18],[at+u*44,22.3,z+23],1.5,p.sun);
-        this.beam([at,30.3,z+2],[at+44,30.3,z+2],1.5,p.sun);
-      }
-    }
-    booster(x,z,h,p){
-      this.tube(x,3,z,h,17,'#d3dfd9','y');this.tube(x,h+3,z,24,17,'#b3c9c6','y',7);
-      for(let y=22;y<h;y+=24)this.tube(x,y,z,2,17.5,'#94b0b2','y');
-      for(const dx of [-19,14])this.box(x+dx,h-20,z-8,5,13,16,p.ground);
-      this.box(x-16,0,z-15,32,4,30,p.ground);
-    }
-    landmark(x,z,variant,p,scale=1){
-      this.model={x,z,scale};
-      try{
-        const steel='#96acaf',dark='#536f78',v=((variant%6)+6)%6;
-        this.shadow(40,0,180,96);
-        if(p.id==='moon'){
-          if(v===0)this.dish(25,0,p);
-          if(v===1){
-            this.box(0,47,-25,60,35,50,'#c1b58e');this.box(9,82,-20,42,26,40,'#d9dccb');
-            this.tube(30,108,0,14,24,'#c7cebd','y',17);this.box(17,88,20.3,26,13,1,'#879faa');
-            for(const dx of [-16,76])for(const dz of [-39,39]){
-              this.beam([dx,3,dz],[dx<0?7:53,48,dz*.5],4,p.ground);this.box(dx-9,0,dz-6,18,3,12,p.ground);
-            }
-            for(let y=5;y<47;y+=7)this.beam([24,y,30],[37,y,30],2,p.ground);
-            this.beam([24,0,32],[24,48,25],2,p.ground);this.beam([37,0,32],[37,48,25],2,p.ground);
-            this.box(116,0,0,3,93,3,steel);this.box(119,68,0,46,25,2,'#e2ded0');
-            for(let j=0;j<4;j++)this.box(119,69+j*6,2,45,2.5,.5,'#be9686');this.box(119,81,2.6,17,12,.5,'#879daa');
-          }
-          if(v===2)this.rover(0,0,p);
-          if(v===3)this.sign(45,0,['LUNAR PARKING','NO EARTHLINGS'],p);
-          if(v===4){
-            this.box(0,58,-10,40,24,21,dark);this.tube(40,69,0,15,9,p.ground);
-            for(const dx of [7,31])this.tube(dx,88,-9,20,12,p.ground,'z');
-            for(const dx of [-12,45])this.beam([dx,0,12],[20,58,0],3,p.ground);
-            this.beam([20,0,-23],[20,58,0],3,p.ground);
-            this.box(120,0,0,4,122,4,p.ground);this.box(101,119,-5,42,29,14,p.ground);this.box(106,124,9.2,32,19,1,'#e3d9b1');
-            for(const dx of [105,137])this.beam([122,30,2],[dx,0,16],3,p.ground);
-          }
-          if(v===5)this.sign(45,0,['TAKE 1969','DEFINITELY SPACE'],p);
-        }else if(p.id==='mars'){
-          if(v===0)this.solar(0,0,p);
-          if(v===1){
-            this.box(0,0,-35,132,37,70,'#ead4b7');this.tube(66,37,0,31,66,'#ead4b7','y',44);this.tube(66,68,0,10,44,'#d4b291','y',14);
-            this.box(53,0,36,27,39,3,p.ground);this.box(60,5,39.2,13,25,1,'#b9cabf');
-            for(const dx of [16,92])this.box(dx,24,36.5,23,14,1,'#a9c4bd');this.solar(163,-12,p);
-          }
-          if(v===2)this.dish(30,0,p);
-          if(v===3)this.rover(0,0,p);
-          if(v===4)this.sign(45,0,['RED FILTER: ON','ARIZONA: CLASSIFIED'],p);
-          if(v===5){this.box(0,0,-12,34,49,26,'#bf9274');this.box(6,24,14,22,18,1,'#dac5a2');this.box(39,0,-8,40,18,21,p.ridgeShadow);}
-        }else if(p.id==='area51'){
-          if(v===0)this.hangar(-40,0,192,90,'HANGAR 51',p);
-          if(v===1){
-            this.dish(0,0,p);this.box(115,0,0,6,60,6,p.ground);this.box(107,58,-4,23,14,14,'#82947c');
-            const sweep=Math.sin(this.time*.6)*28;
-            this.face([[118,69,7],[45+sweep,195,-70],[185+sweep,195,-70]],'#455452');
-          }
-          if(v===2){this.hangar(-35,-20,215,99,'AUTHORIZED PERSONNEL',p);this.ufo(27,145+Math.sin(this.time*1.7)*4,-16,100,39);}
-          if(v===3){
-            this.box(0,15,-23,119,25,46,'#66786f');this.box(26,40,-21,61,20,42,'#66786f');
-            for(const dx of [30,62])this.box(dx,44,21,23,12,1,'#9baca0');
-            for(const dx of [10,94])for(const dz of [-26,21])this.box(dx,0,dz,18,20,9,'#384b50');
-          }
-          if(v===4){this.ufo(-18,9,-15,83,33);this.sign(151,15,['WEATHER BALLOON','PARKING ONLY'],p);}
-          if(v===5){this.sign(45,0,['YOU SAW NOTHING'],p);this.box(-57,0,-8,4,109,4,p.ground);this.box(-53,99,-12,23,14,12,'#82947c');}
-        }else if(p.id==='lockheed'){
-          if(v===0){this.hangar(-40,-20,230,112,'SKUNK WORKS',p);this.jet(0,8,60,133,34,80);}
-          if(v===1){
-            this.jet(-20,8,0,189,42,104);
-            for(const dx of [13,121])this.box(dx,0,-4,5,13,8,dark);
-          }
-          if(v===2){
-            this.box(0,0,-16,28,128,32,steel);this.box(-20,128,-29,70,30,58,steel);
-            this.box(-14,136,29,58,14,1,'#c7d9d7');this.box(-26,158,-34,82,6,68,dark);
-            this.box(12,164,-1,3,24,3,dark);this.beam([2,187,0],[27,187,0],2,dark);
-          }
-          if(v===3){
-            this.hangar(-40,-25,196,85,'ENGINE TEST',p);this.box(33,0,47,12,21,24,dark);
-            this.tube(22,42,58,48,24,'#cad5cf');this.tube(20,42,58,3,18,dark);
-            for(let i=0;i<5;i++){
-              const a=i*Math.PI*2/5+this.time*.7;
-              this.beam([19.5,42,58],[19.5,42+Math.cos(a)*16,58+Math.sin(a)*16],3,steel);
-            }
-          }
-          if(v===4){this.sign(45,0,['SECRET PARKING','EVEN THE CACTI SIGNED'],p);this.box(151,0,4,25,20,25,steel);this.box(149,20,5,26,12,14,dark);this.box(160,23,10,5,12,5,'#d6ddd0');}
-          if(v===5)this.dish(25,0,p);
-        }else{
-          if(v===0){this.hangar(-45,-25,280,134,'STARFACTORY',p);this.booster(40,36,74,p);this.booster(145,36,74,p);}
-          if(v===1){
-            for(const dx of [0,46])this.box(dx,0,-20,8,214,40,dark);
-            for(let y=12;y<212;y+=24){this.box(7,y,-19,40,4,38,steel);this.beam([8,y+4,22],[46,y+24,22],3,steel);}
-            this.box(-4,214,-24,63,7,48,steel);this.box(8,172,8,100,8,14,dark);this.box(98,123,8,8,56,14,steel);
-            this.booster(130,0,175,p);this.box(-84,0,-27,5,172,5,steel);this.box(-104,172,-28,114,5,7,steel);this.beam([-9,173,-24],[-9,131,-24],2,p.ground);
-          }
-          if(v===2){
-            this.box(-12,0,-35,156,4,71,p.ground);
-            for(const [dx,h,r] of [[22,75,24],[97,54,20]]){this.tube(dx,4,0,h,r,'#b5cecc','y');this.tube(dx,h+4,0,8,r,'#dce6db','y',r*.7);}
-            this.box(24,12,24,78,4,5,steel);
-          }
-          if(v===3)this.sign(45,0,['RAPID UNSCHEDULED','PARKING'],p);
-          if(v===4){this.sign(45,0,['RETURN ALL PARTS','RECEIPT OPTIONAL'],p);this.box(157,0,-9,28,17,24,steel);this.tube(170,17,0,10,10,dark,'y',5);}
-          if(v===5){this.box(0,0,-15,33,23,31,steel);this.box(6,23,-8,21,14,17,'#b9d0c7');}
-        }
-      }finally{this.model=null;}
+    cactus(x,z,size,p,elevation=0){
+      // Same optional roadside cactus, size and position as the Classic layout.
+      const q=(dx,y,dz=0)=>[x+dx*size,elevation+y*size,z+dz*size];
+      const front=[[11,0],[20,0],[20,24],[31,24],[31,45],[25,45],[25,30],[20,30],[20,53],[18,57],[13,57],[11,53],[11,24],[6,24],[6,39],[0,39],[0,19],[11,19]];
+      this.face(front.map(([dx,y])=>q(dx,y)),p.cactus);
+      this.face(front.map(([dx,y])=>q(dx,y,-6)),shade(p.cactus,.8));
     }
     mesa(x,z,w,h,d,p){
       const outline=[[0,0],[0,h*.3],[w*.13,h*.3],[w*.13,h*.67],[w*.29,h*.67],[w*.29,h],[w*.66,h],[w*.66,h*.78],[w*.84,h*.78],[w*.84,h*.25],[w,h*.25],[w,0]];
@@ -499,13 +398,18 @@
       const mountainCell=Math.floor(distance/850),mountainScroll=distance%850;
       for(let i=-4;i<12;i++){
         const n=mountainCell+i;
-        this.tube(i*850-mountainScroll+noise(n)*190,0,-1080-noise(n+18)*370,170+noise(n+32)*180,165+noise(n+71)*140,p.ridgeShadow,'y',30+noise(n+9)*45);
+        this.tube(i*850-mountainScroll+noise(n)*190,0,-1080-noise(n+18)*370,115+noise(n+32)*90,210+noise(n+71)*145,p.ridgeShadow,'y',70+noise(n+9)*45);
       }
+      this.flush();
+      for(const item of sceneryLayout(p.id,distance,-800,4400)){
+        if(item.visible)this.landmark(item.x-254,-item.depth,item.variant,p,item.size,item.elevation*side);
+        if(item.cactus)this.cactus(item.cactus.x-254,-220,item.cactus.size,p,12*side);
+      }
+      // Keep terrain behind complete prop groups, and the running lane in front.
+      this.flush();
       const cell=Math.floor(distance/520),scroll=distance%520;
       for(let i=-2;i<9;i++){
         const n=cell+i,x=i*520-scroll+noise(n)*120;
-        const z=-260-noise(n+80)*160;
-        if((n%7+7)%7!==5)this.landmark(x,z,n,p,.8+noise(n+22)*.28);
         for(let j=0;j<2;j++){
           const rx=x+j*117,rz=110+noise(n+j+93)*190;
           this.tube(rx,0,rz,6+noise(n+j)*9,8+noise(n+j+9)*8,p.rock,'y',3);

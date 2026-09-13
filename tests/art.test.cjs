@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {Art,SCENES,ObstacleSprites}=require('../game-art.js');
+const {Art,SCENES,ObstacleSprites,ScenerySprites,sceneryLayout}=require('../game-art.js');
 const {Runner,SECTOR_IDS,OBSTACLES}=require('../game-core.js');
 
 function context() {
@@ -99,4 +99,45 @@ test('perspective obstacle textures reuse classic art, cache by palette and repa
   }
   assert.equal(signatures.size,OBSTACLES.length);
   assert.equal(sprites.cache.size,OBSTACLES.length*2);assert.equal(canvases.length,OBSTACLES.length*4);
+});
+
+test('all thirty 3D scenery textures preserve Classic captions and keep the complete drawing inside the canvas',()=>{
+  function canvas(){
+    let state={x:0,y:0,sx:1,sy:1},stack=[];
+    const image={width:0,height:0},labels=[],bounds=[],c={labels,bounds,font:'10px monospace'};
+    const point=(x,y)=>bounds.push([state.x+x*state.sx,state.y+y*state.sy]);
+    Object.assign(c,{save(){stack.push({...state});},restore(){state=stack.pop();},
+      setTransform(a,b,c,d,x,y){assert.equal(b,0);assert.equal(c,0);state={x,y,sx:a,sy:d};},
+      translate(x,y){state.x+=x*state.sx;state.y+=y*state.sy;},scale(x,y){state.sx*=x;state.sy*=y;},
+      fillRect(x,y,w,h){point(x,y);point(x+w,y+h);},moveTo:point,lineTo:point,
+      clearRect(){labels.length=0;bounds.length=0;},beginPath(){},closePath(){},fill(){},stroke(){},
+      fillText(text,x,y){
+        labels.push(text);const h=Number(c.font.match(/(\d+)px/)[1]),w=text.length*h*.6;
+        point(x-(c.textAlign==='center'?w/2:0),y-h);point(x+(c.textAlign==='center'?w/2:w),y);
+      }});
+    image.getContext=()=>c;return image;
+  }
+  const sprites=new ScenerySprites(canvas),signatures=new Set();
+  for(const p of SCENES)for(let variant=0;variant<6;variant++){
+    const sprite=sprites.get(p.id,variant,4);
+    const direct=context();new Art(direct).landmark(p.id,variant,p,sprite.frame/12,sprite.frame===0);
+    assert.deepEqual(sprite.ctx.labels,direct.labels,p.id+':'+variant+' has every original caption');
+    for(const [x,y] of sprite.ctx.bounds)assert.ok(x>=0&&y>=0&&x<=sprite.image.width&&y<=sprite.image.height,JSON.stringify({id:p.id,variant,x,y,width:sprite.image.width,height:sprite.image.height}));
+    signatures.add(JSON.stringify({bounds:sprite.ctx.bounds,labels:sprite.ctx.labels}));
+    const before=sprite.ctx.bounds;assert.equal(sprites.get(p.id,variant,4.01),sprite);assert.equal(sprite.ctx.bounds,before);
+  }
+  assert.equal(signatures.size,30);assert.equal(sprites.cache.size,30);
+});
+
+test('Classic scenery order and spacing remain stable at cell boundaries for every starting map',()=>{
+  for(const p of SCENES){
+    const a=sceneryLayout(p.id,390/.19-.1,-800,4400),b=sceneryLayout(p.id,390/.19+.1,-800,4400);
+    for(const old of a){
+      const next=b.find(n=>n.cell===old.cell);if(!next)continue;
+      assert.equal(next.variant,old.variant);assert.equal(next.visible,old.visible);assert.equal(next.size,old.size);
+      assert.ok(Math.abs(old.x-next.x-.2*.19)<1e-8);
+    }
+    const start=sceneryLayout(p.id,0,0,2400).filter(n=>n.visible);
+    assert.deepEqual(start.slice(0,6).map(n=>n.variant),[0,5,4,3,2,1],'preserve the existing Classic order');
+  }
 });

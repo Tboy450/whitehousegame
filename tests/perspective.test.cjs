@@ -160,54 +160,70 @@ test('perspective texturing uses finite transforms, preserves transparency and b
   assert.equal(draws,480);assert.equal(stack,0);assert.equal(c.imageSmoothingEnabled,false);
 });
 
-test('all thirty scenery groups stay grounded, retain distinct references, and cache perspective sign artwork',()=>{
-  const labels=new Set();let canvases=0;
-  const provider={createCanvas(){canvases++;return {getContext:()=>({fillRect(){},fillText(text){labels.add(text);}})};}};
-  const renderer=new Scene3D({},provider);renderer.time=12;renderer.shadowColor='#889977';
-  renderer.camera=new Camera(1200,570,0);renderer.width=1200;renderer.height=570;
-  const world=[];renderer.face=vertices=>world.push(vertices.map(p=>renderer.modelPoint(p)));
-  const captions=[],placard=renderer.placard.bind(renderer);
-  renderer.placard=(lines,...args)=>{captions.push(...lines);placard(lines,...args);};
-  for(const palette of SCENES){
-    const signatures=new Set();
-    for(let variant=0;variant<6;variant++){
-      world.length=0;captions.length=0;renderer.faces.length=0;renderer.landmark(400,-320,variant,palette,.9);
-      assert.equal(renderer.model,null);assert.ok(world.length>5);
-      const points=world.flat();assert.ok(points.flat().every(Number.isFinite));
-      const base=Math.min(...points.map(p=>p[1]));
-      assert.ok(base<=0&&base>=-2,'prop bases meet the terrain; angled feet may extend slightly into it');
-      assert.ok(Math.max(...points.map(p=>p[2]))<-200,'decorative scenery cannot intrude into the running lane');
-      signatures.add(JSON.stringify({world,captions}));
-      for(const face of renderer.faces)assert.ok(face.image&&face.points.flat().every(Number.isFinite));
-    }
-    assert.equal(signatures.size,6,palette.id+' must retain a varied set of references');
+test('scenery facades render after their own solid sides so boards cannot mask lettering',()=>{
+  const image={width:412,height:164},sprite={image,width:206,height:82,left:-8,top:74,sourceWidth:190,
+    hull:[{points:[[0,0],[1,0],[1,1],[0,1]],colors:Array(4).fill('#889977')}]};
+  for(const blend of [0,.5,1])for(const side of [0,.5,1]){
+    const renderer=new Scene3D({});renderer.scenerySprites={get:()=>sprite};
+    renderer.camera=new Camera(1200,570,blend,side);renderer.viewBlend=blend;renderer.width=1200;renderer.height=570;
+    renderer.shadowColor='#889977';renderer.time=1;
+    renderer.landmark(400,-320,5,SCENES[0],.9);
+    assert.equal(renderer.faces.length,1,'each prop has one compositing group');
+    const group=renderer.faces[0].group,index=group.findIndex(f=>f.image);
+    assert.ok(index>=1);assert.equal(group.filter(f=>f.image).length,36);
+    assert.ok(group.slice(index).every(f=>f.image===image),'all of the caption paints over its own backing');
+    assert.ok(group.flatMap(f=>f.points).flat().every(Number.isFinite));
+    const painted=[];
+    renderer.paintTexture=()=>painted.push('front');
+    renderer.ctx=new Proxy({fill(){painted.push('side');}},{get:(o,key)=>o[key]??(()=>{}),set:(o,key,v)=>(o[key]=v,true)});
+    renderer.flush();assert.equal(renderer.faces.length,0);
+    assert.ok(painted.slice(painted.indexOf('front')).every(p=>p==='front'));
   }
-  for(const name of ['TAKE 1969','DEFINITELY SPACE','RED FILTER: ON','ARIZONA: CLASSIFIED','HANGAR 51','WEATHER BALLOON','SKUNK WORKS','ENGINE TEST','STARFACTORY','RAPID UNSCHEDULED'])assert.ok(labels.has(name),name);
-  const baked=canvases,otherScene=new Scene3D({},provider);
-  assert.equal(otherScene.signTextures,renderer.signTextures,'map fades share cached signs');
-  for(const p of SCENES)for(let i=0;i<6;i++)renderer.landmark(0,-300,i,p);
-  assert.equal(canvases,baked,'moving the camera or scenery does not rebake signs');
 });
 
-test('scenery scrolls continuously with props in front of mountains and block-cut ridges behind them',()=>{
-  function sample(distance){
-    const c=new Proxy({},{get:(o,key)=>o[key]??(()=>{}),set:(o,key,value)=>(o[key]=value,true)});
-    const renderer=new Scene3D(c),props=[],mountains=[],ridges=[];
-    renderer.landmark=(x,z,variant,p,scale)=>props.push({worldX:x+distance,z,variant,scale});
+test('Classic and both 3D views share the same scenery sequence, spacing and side-on ground positions',()=>{
+  const {Art,sceneryLayout}=require('../game-art.js');
+  const c=new Proxy({},{get:(o,key)=>o[key]??(()=>{}),set:(o,key,value)=>(o[key]=value,true)});
+  for(const palette of SCENES)for(const distance of [0,2000,390/.19-.1,390/.19+.1,6000,16000]){
+    const source=sceneryLayout(palette.id,distance,-800,4400),props=[],mountains=[],ridges=[];
+    const renderer=new Scene3D(c);
+    renderer.landmark=(x,z,variant,p,scale,elevation)=>props.push({x,z,variant,scale,elevation});
     renderer.mesa=(x,z,w,h,d)=>ridges.push({z,w,h,d});
     const tube=renderer.tube.bind(renderer);
     renderer.tube=(x,y,z,h,r,...rest)=>{if(z<-700)mountains.push({z,r});else tube(x,y,z,h,r,...rest);};
-    const game=new Runner();game.start();renderer.render({width:1200,height:570,palette:SCENES[0],game,distance,time:1});
-    return {props,mountains,ridges};
+    const game=new Runner();game.start();
+    renderer.render({width:1200,height:570,palette,game,distance,time:1,blend:1,side:1});
+    assert.equal(props.length,source.filter(s=>s.visible).length);
+    source.filter(s=>s.visible).forEach((s,i)=>{
+      assert.equal(props[i].variant,s.variant);assert.equal(props[i].x,s.x-254);
+      assert.equal(props[i].z,-s.depth);assert.equal(props[i].scale,s.size);assert.equal(props[i].elevation,s.elevation);
+    });
+    const art=new Art(c),classic=[];let at;
+    c.translate=(x,y)=>{at={x,y};};art.landmark=(id,variant)=>classic.push({...at,variant});
+    art.landmarks(palette.id,1200,485,distance,palette,1,true);
+    const visible=sceneryLayout(palette.id,distance,0,1200).filter(s=>s.visible);
+    assert.equal(classic.length,visible.length);
+    visible.forEach((s,i)=>assert.deepEqual(classic[i],{x:Math.round(s.x),y:Math.round(485-s.elevation),variant:s.variant}));
+    assert.ok(Math.max(...mountains.map(m=>m.z+m.r))<Math.min(...props.map(p=>p.z))-100);
+    assert.ok(Math.max(...ridges.map(r=>r.z))<Math.min(...mountains.map(m=>m.z-m.r))-100);
   }
-  const a=sample(519.9),b=sample(520.1);assert.deepEqual(a,sample(519.9));
-  assert.ok(a.props.length>=8);assert.ok(new Set(a.props.map(p=>p.scale)).size>4);
-  assert.ok(Math.max(...a.mountains.map(m=>m.z+m.r))<Math.min(...a.props.map(p=>p.z))-100);
-  assert.ok(Math.max(...a.ridges.map(r=>r.z))<Math.min(...a.mountains.map(m=>m.z-m.r))-100);
-  let shared=0;
-  for(const p of a.props){
-    const next=b.props.find(q=>Math.abs(q.worldX-p.worldX)<1e-7);if(!next)continue;
-    shared++;assert.equal(next.variant,p.variant);assert.equal(next.scale,p.scale);assert.equal(next.z,p.z);
+});
+
+test('scenery contact shadows follow the turned facade, rear depth and raised Classic base',()=>{
+  const sprite={image:{width:698,height:302},width:349,height:151,left:-8,top:143,sourceWidth:333,hull:[]};
+  for(const blend of [0,.5,1])for(const side of [0,.5,1]){
+    const renderer=new Scene3D({});renderer.scenerySprites={get:()=>sprite};
+    renderer.camera=new Camera(1200,570,blend,side);renderer.viewBlend=blend;renderer.time=1;renderer.shadowColor='#888888';
+    const polygons=[],front=[];renderer.face=(points)=>polygons.push(points);
+    renderer.spritePanel=(image,{surface})=>{front.push(surface(8/349,143/151),surface(341/349,143/151));};
+    const elevation=24*side;renderer.landmark(200,-320,0,SCENES[4],1.4,elevation);
+    const shadow=polygons[0];assert.equal(shadow.length,4);
+    assert.ok(shadow.every(p=>Math.abs(p[1]-(elevation+.2))<1e-8));
+    const span=[front[1][0]-front[0][0],front[1][2]-front[0][2]],edge=[shadow[1][0]-shadow[0][0],shadow[1][2]-shadow[0][2]];
+    assert.ok(Math.abs(span[0]*edge[1]-span[1]*edge[0])<1e-7,'shadow and facade have the same heading');
+    const length=Math.hypot(...span),normal=[-span[1]/length,span[0]/length];
+    const offsets=shadow.map(p=>(p[0]-front[0][0])*normal[0]+(p[2]-front[0][2])*normal[1]);
+    assert.ok(Math.abs(Math.max(...offsets)-2.1)<1e-7,'only a narrow contact edge extends in front');
+    assert.ok(Math.abs(Math.min(...offsets)-(-90*1.4*(1-side)-2.1))<1e-7,'the footprint extends behind the facade with the actual model depth');
   }
-  assert.ok(shared>=7,'crossing a scenery cell cannot rearrange visible props');
 });
