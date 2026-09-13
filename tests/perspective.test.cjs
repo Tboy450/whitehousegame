@@ -26,6 +26,22 @@ test('near-plane clipping produces finite polygons instead of inverted geometry'
   assert.equal(camera.project([-10000,0,0]),null);
 });
 
+test('the moving camera keeps the full jump framed and arrives at the exact Classic coordinates',()=>{
+  for(const [width,height] of [[1200,570],[800,790],[800,570],[1420,390]])for(const blend of [0,.5,1])for(const side of [0,.1,.25,.5,.75,.9,1]){
+    const camera=new Camera(width,height,blend,side);
+    for(const x of [-100,100])for(const y of [0,140,302]){
+      const point=camera.project([x,y,23]);assert.ok(point);
+      assert.ok(point.point.every(Number.isFinite));
+      assert.ok(point.point[0]>0&&point.point[0]<width&&point.point[1]>0&&point.point[1]<height,JSON.stringify({width,height,blend,side,x,y,point}));
+    }
+    if(side===1){
+      for(const x of [-100,0,166,900])for(const y of [0,25,165])for(const z of [-28,0,28]){
+        assert.deepEqual(camera.project([x,y,z]).point,[254+x,height-85-y]);
+      }
+    }
+  }
+});
+
 test('all 3D map themes and every hazard render finite geometry without mutating gameplay',()=>{
   const paletteSignatures=[new Set(),new Set()];
   for(const palette of SCENES)for(const blend of [0,1]){
@@ -50,8 +66,8 @@ test('all 3D map themes and every hazard render finite geometry without mutating
 test('one original crew front and connected sides stay in frame throughout both cameras and a full jump',()=>{
   const image={width:1536,height:1024};
   const hull=[{points:[[0,0],[1,0],[1,1],[0,1]],colors:['#c6a87a','#bc714f','#54656c','#4a687a']}];
-  for(const [width,height] of [[1200,570],[800,790],[800,570],[1420,390]])for(const blend of [0,.5,1])for(const altitude of [0,165]){
-    const renderer=new Scene3D({});renderer.camera=new Camera(width,height,blend);
+  for(const [width,height] of [[1200,570],[800,790],[800,570],[1420,390]])for(const blend of [0,.5,1])for(const side of [0,.5,.9,1])for(const altitude of [0,165]){
+    const renderer=new Scene3D({});renderer.camera=new Camera(width,height,blend,side);
     renderer.viewBlend=blend;renderer.crewImage=image;renderer.crewHull=hull;renderer.shadowColor='#667766';
     renderer.width=width;renderer.height=height;renderer.rocket(altitude);
     const textured=renderer.faces.filter(f=>f.image);
@@ -142,4 +158,56 @@ test('perspective texturing uses finite transforms, preserves transparency and b
   renderer.crewPanel(image,80,[.8,0,.6]);
   for(const face of renderer.faces)renderer.paintTexture(face);
   assert.equal(draws,480);assert.equal(stack,0);assert.equal(c.imageSmoothingEnabled,false);
+});
+
+test('all thirty scenery groups stay grounded, retain distinct references, and cache perspective sign artwork',()=>{
+  const labels=new Set();let canvases=0;
+  const provider={createCanvas(){canvases++;return {getContext:()=>({fillRect(){},fillText(text){labels.add(text);}})};}};
+  const renderer=new Scene3D({},provider);renderer.time=12;renderer.shadowColor='#889977';
+  renderer.camera=new Camera(1200,570,0);renderer.width=1200;renderer.height=570;
+  const world=[];renderer.face=vertices=>world.push(vertices.map(p=>renderer.modelPoint(p)));
+  const captions=[],placard=renderer.placard.bind(renderer);
+  renderer.placard=(lines,...args)=>{captions.push(...lines);placard(lines,...args);};
+  for(const palette of SCENES){
+    const signatures=new Set();
+    for(let variant=0;variant<6;variant++){
+      world.length=0;captions.length=0;renderer.faces.length=0;renderer.landmark(400,-320,variant,palette,.9);
+      assert.equal(renderer.model,null);assert.ok(world.length>5);
+      const points=world.flat();assert.ok(points.flat().every(Number.isFinite));
+      const base=Math.min(...points.map(p=>p[1]));
+      assert.ok(base<=0&&base>=-2,'prop bases meet the terrain; angled feet may extend slightly into it');
+      assert.ok(Math.max(...points.map(p=>p[2]))<-200,'decorative scenery cannot intrude into the running lane');
+      signatures.add(JSON.stringify({world,captions}));
+      for(const face of renderer.faces)assert.ok(face.image&&face.points.flat().every(Number.isFinite));
+    }
+    assert.equal(signatures.size,6,palette.id+' must retain a varied set of references');
+  }
+  for(const name of ['TAKE 1969','DEFINITELY SPACE','RED FILTER: ON','ARIZONA: CLASSIFIED','HANGAR 51','WEATHER BALLOON','SKUNK WORKS','ENGINE TEST','STARFACTORY','RAPID UNSCHEDULED'])assert.ok(labels.has(name),name);
+  const baked=canvases,otherScene=new Scene3D({},provider);
+  assert.equal(otherScene.signTextures,renderer.signTextures,'map fades share cached signs');
+  for(const p of SCENES)for(let i=0;i<6;i++)renderer.landmark(0,-300,i,p);
+  assert.equal(canvases,baked,'moving the camera or scenery does not rebake signs');
+});
+
+test('scenery scrolls continuously with props in front of mountains and block-cut ridges behind them',()=>{
+  function sample(distance){
+    const c=new Proxy({},{get:(o,key)=>o[key]??(()=>{}),set:(o,key,value)=>(o[key]=value,true)});
+    const renderer=new Scene3D(c),props=[],mountains=[],ridges=[];
+    renderer.landmark=(x,z,variant,p,scale)=>props.push({worldX:x+distance,z,variant,scale});
+    renderer.mesa=(x,z,w,h,d)=>ridges.push({z,w,h,d});
+    const tube=renderer.tube.bind(renderer);
+    renderer.tube=(x,y,z,h,r,...rest)=>{if(z<-700)mountains.push({z,r});else tube(x,y,z,h,r,...rest);};
+    const game=new Runner();game.start();renderer.render({width:1200,height:570,palette:SCENES[0],game,distance,time:1});
+    return {props,mountains,ridges};
+  }
+  const a=sample(519.9),b=sample(520.1);assert.deepEqual(a,sample(519.9));
+  assert.ok(a.props.length>=8);assert.ok(new Set(a.props.map(p=>p.scale)).size>4);
+  assert.ok(Math.max(...a.mountains.map(m=>m.z+m.r))<Math.min(...a.props.map(p=>p.z))-100);
+  assert.ok(Math.max(...a.ridges.map(r=>r.z))<Math.min(...a.mountains.map(m=>m.z-m.r))-100);
+  let shared=0;
+  for(const p of a.props){
+    const next=b.props.find(q=>Math.abs(q.worldX-p.worldX)<1e-7);if(!next)continue;
+    shared++;assert.equal(next.variant,p.variant);assert.equal(next.scale,p.scale);assert.equal(next.z,p.z);
+  }
+  assert.ok(shared>=7,'crossing a scenery cell cannot rearrange visible props');
 });

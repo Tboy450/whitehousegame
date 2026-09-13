@@ -12,7 +12,10 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
   const nodes = new Map(), frameQueue=[], windowEvents={}, documentEvents={}, store={rocketRunView:initialView};
   const ctx = new Proxy({}, {get:(object,key)=>object[key] ?? (()=>{}),set:(object,key,value)=>(object[key]=value,true)});
   let time=0, imageDraws=0, activeElement, image, onResize;
-  const transforms=[],composites=[];
+  const transforms=[],composites=[],cameras=[];
+  class ObservedScene3D extends threeD.Scene3D {
+    render(scene){cameras.push({blend:scene.blend,side:scene.side,width:scene.width,height:scene.height});super.render(scene);}
+  }
   ctx.scale=(...args)=>{assert.ok(args.every(Number.isFinite));transforms.push(args);};
   ctx.drawImage=source=>{imageDraws++;if(source?.tagName==='CANVAS')composites.push({alpha:ctx.globalAlpha,width:source.width,height:source.height});};
   function element(id='',tag='DIV') {
@@ -30,7 +33,7 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
   for(const match of html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)) nodes.set(match[2],element(match[2],match[1].toUpperCase()));
   const document={getElementById:id=>{assert.ok(nodes.has(id),'Missing HTML id: '+id);return nodes.get(id);},createElement:tag=>element('',tag.toUpperCase()),createTextNode:text=>({textContent:text}),
     addEventListener:(type,listener)=>(documentEvents[type] ||= []).push(listener),hidden:false,get activeElement(){return activeElement;}};
-  const window={RocketRunner:engine,RocketArtwork:artwork,Rocket3D:threeD,devicePixelRatio:1,matchMedia:()=>({matches:reducedMotion}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
+  const window={RocketRunner:engine,RocketArtwork:artwork,Rocket3D:{...threeD,Scene3D:ObservedScene3D},devicePixelRatio:1,matchMedia:()=>({matches:reducedMotion}),addEventListener:(type,listener)=>(windowEvents[type] ||= []).push(listener)};
   const sandbox={window,document,performance:{now:()=>time},localStorage:{getItem:key=>{if(storageFails)throw Error('blocked');return store[key];},setItem:(key,value)=>{if(storageFails)throw Error('blocked');store[key]=value;}},
     Image:class{constructor(){image=this;}naturalWidth=1536;naturalHeight=1024;set src(_){if(!imagePending)imageFails?this.onerror():this.onload();}},ResizeObserver:class{constructor(callback){onResize=callback;}observe(){onResize();}},requestAnimationFrame:callback=>frameQueue.push(callback),Math,Set,Number,String,Object,Date};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../game.js'),'utf8'),sandbox);
@@ -39,7 +42,7 @@ function setup({ storageFails=false, imageFails=false, imagePending=false, engin
     for(const listener of (target===window?windowEvents:target===document?documentEvents:target.events)[type]||[])listener(event);
   }
   function frames(count) {for(let i=0;i<count;i++){time+=1000/60;assert.equal(frameQueue.length,1,'exactly one animation loop');frameQueue.shift()(time);}}
-  return {nodes,window,document,dispatch,frames,store,frameQueue,transforms,composites,resize(next){rect=next;onResize();},loadImage(){image.onload();},get imageDraws(){return imageDraws;}};
+  return {nodes,window,document,dispatch,frames,store,frameQueue,transforms,composites,cameras,resize(next){rect=next;onResize();},loadImage(){image.onload();},get imageDraws(){return imageDraws;}};
 }
 
 test('menu, both scenes, playing, pause, resume, and repeated restarts use one animation loop',()=>{
@@ -219,48 +222,23 @@ test('C and phone view buttons cycle all perspectives without changing a jump or
   app.dispatch(app.window,'keyup',{code:'Space'});app.frames(70);assert.equal(runner.player.airborne,false);
 });
 
-test('a quick double-tap cycles views with an immediate first jump and no second jump input',()=>{
+test('repeated taps only jump, release cleanly, and leave camera switching to the View button',()=>{
   let runner;
   class ControlledRunner extends core.Runner{constructor(){super(()=>0);runner=this;}}
   const app=setup({initialView:'angle',engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
   app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;
   const finger={pointerType:'touch',pointerId:1,isPrimary:true,clientX:160,clientY:220};
-  for(const next of ['chase','classic','angle']){
+  for(const release of ['pointerup','pointercancel','lostpointercapture']){
     app.dispatch(get('stage'),'pointerdown',finger);
-    assert.ok(runner.player.airborne,'a single tap never waits for a second tap');
-    app.frames(2);app.dispatch(app.window,'pointerup',finger);
-    // Browsers release capture after pointerup; this must preserve a completed tap.
-    app.dispatch(get('stage'),'lostpointercapture',finger);app.frames(2);
-    const before=JSON.stringify(runner);
+    assert.ok(runner.player.airborne);assert.ok(runner.held);
+    app.frames(2);app.dispatch(release==='lostpointercapture'?get('stage'):app.window,release,finger);
+    assert.equal(runner.held,false);app.frames(2);
     app.dispatch(get('stage'),'pointerdown',{...finger,clientX:169,clientY:216});
-    assert.equal(get('gameContainer').dataset.view,next);assert.equal(app.store.rocketRunView,next);
-    assert.equal(JSON.stringify(runner),before,'the camera gesture cannot queue another jump');
+    assert.equal(get('gameContainer').dataset.view,'angle');assert.ok(runner.held);
     app.dispatch(app.window,'pointerup',finger);
-    app.frames(1);app.dispatch(get('stage'),'pointerdown',finger);app.dispatch(app.window,'pointerup',finger);
-    assert.equal(get('gameContainer').dataset.view,next,'a triple tap only changes the view once');
-    app.frames(30);
+    app.frames(60);
   }
-});
-
-test('slow taps, holds, drags, cancellations, multiple fingers and menu actions do not trigger camera gestures',()=>{
-  for(const scenario of ['slow','hold','drag','far','cancel','lost','multitouch','mouse','pause','button']){
-    const app=setup({initialView:'classic'}),get=id=>app.nodes.get(id);
-    app.dispatch(get('startButton'),'click');
-    const finger={pointerType:scenario==='mouse'?'mouse':'touch',button:0,pointerId:1,isPrimary:true,clientX:160,clientY:220};
-    app.dispatch(get('stage'),'pointerdown',finger);app.frames(scenario==='hold'?13:2);
-    if(scenario==='drag'){
-      app.dispatch(get('stage'),'pointermove',{...finger,clientX:220});
-      app.dispatch(get('stage'),'pointermove',finger);
-    }
-    if(scenario==='multitouch')app.dispatch(get('stage'),'pointerdown',{...finger,pointerId:2,isPrimary:false});
-    if(scenario==='lost')app.dispatch(get('stage'),'lostpointercapture',finger);
-    app.dispatch(app.window,scenario==='cancel'?'pointercancel':'pointerup',finger);
-    if(scenario==='pause'){app.dispatch(get('pauseButton'),'click');app.dispatch(get('resumeButton'),'click');}
-    if(scenario==='button')app.dispatch(get('stage'),'pointerdown',{...finger,target:get('resumeButton')});
-    app.frames(scenario==='slow'?20:1);
-    app.dispatch(get('stage'),'pointerdown',{...finger,clientX:scenario==='far'?230:160});
-    assert.equal(get('gameContainer').dataset.view,'classic',scenario);
-  }
+  app.dispatch(get('viewButton'),'click');assert.equal(get('gameContainer').dataset.view,'chase');
 });
 
 test('3D scene fades survive camera changes, pausing and phone resizing with the same hazard-free transition',()=>{
@@ -278,4 +256,52 @@ test('3D scene fades survive camera changes, pausing and phone resizing with the
   app.dispatch(get('resumeButton'),'click');app.frames(180);
   assert.equal(runner.transition,null);assert.equal(runner.level,2);assert.equal(runner.speed,330*1.15);
   assert.equal(get('circuit').textContent,'LEVEL 02');assert.equal(get('gameOver').hidden,true);
+});
+
+test('camera flights ease for a full second, retarget continuously and freeze during pause',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner{constructor(){super();runner=this;}}
+  const app=setup({initialView:'angle',engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;app.frames(1);
+  app.dispatch(app.window,'keydown',{code:'Space'});
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(1);
+  assert.ok(app.cameras.at(-1).blend>0&&app.cameras.at(-1).blend<.001,'ease out of the starting pose');
+  app.frames(29);assert.ok(Math.abs(app.cameras.at(-1).blend-.5)<.03);
+  assert.ok(runner.player.airborne);assert.ok(runner.distance>100);
+  app.frames(32);assert.equal(app.cameras.at(-1).blend,1);
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(24);
+  const before=app.cameras.at(-1);assert.ok(before.side>.2&&before.side<.4);
+  // Reverse toward Angle before reaching Classic; do not restart at either preset.
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(1);
+  const after=app.cameras.at(-1);
+  assert.ok(Math.abs(after.side-before.side)<.001);assert.ok(Math.abs(after.blend-before.blend)<.001);
+  app.frames(12);app.dispatch(get('pauseButton'),'click');app.frames(1);
+  const paused=app.cameras.at(-1),run=JSON.stringify(runner);
+  app.resize({width:370,height:366});app.frames(90);
+  assert.equal(app.cameras.at(-1).blend,paused.blend);assert.equal(app.cameras.at(-1).side,paused.side);
+  assert.equal(JSON.stringify(runner),run);assert.equal(app.cameras.at(-1).width,800);
+  app.dispatch(get('resumeButton'),'click');app.frames(65);
+  assert.equal(app.cameras.at(-1).blend,0);assert.equal(app.cameras.at(-1).side,0);
+});
+
+test('Classic joins the continuous camera flight, reduced motion and restarts settle immediately',()=>{
+  let runner;
+  class ControlledRunner extends core.Runner{constructor(){super();runner=this;}}
+  const app=setup({initialView:'chase',engine:{...core,Runner:ControlledRunner}}),get=id=>app.nodes.get(id);
+  app.dispatch(get('startButton'),'click');runner.spawnIn=Infinity;app.frames(1);
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(45);
+  assert.ok(app.cameras.at(-1).side>.88&&app.cameras.at(-1).side<1);
+  assert.ok(app.composites.at(-1).alpha>0&&app.composites.at(-1).alpha<1,'Classic dissolves only near the side-on pose');
+  app.frames(17);const count=app.cameras.length;app.frames(2);
+  assert.equal(app.cameras.length,count,'settled Classic avoids rendering an unused 3D scene');
+  app.dispatch(app.window,'keydown',{code:'KeyC'});app.frames(1);
+  assert.ok(app.cameras.at(-1).side>.999,'leaving Classic starts from its current pose');
+  app.dispatch(get('retryButton'),'click');runner.spawnIn=Infinity;app.frames(1);
+  assert.equal(app.cameras.at(-1).side,0);assert.equal(app.cameras.at(-1).blend,0);
+  const reduced=setup({initialView:'angle',reducedMotion:true});
+  reduced.dispatch(reduced.nodes.get('startButton'),'click');reduced.frames(1);
+  reduced.dispatch(reduced.window,'keydown',{code:'KeyC'});reduced.frames(1);
+  assert.equal(reduced.cameras.at(-1).blend,1);
+  reduced.dispatch(reduced.window,'keydown',{code:'KeyC'});const calls=reduced.cameras.length;reduced.frames(1);
+  assert.equal(reduced.cameras.length,calls);
 });

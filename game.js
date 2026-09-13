@@ -17,19 +17,20 @@
   const {Scene3D,VIEWS,buildCrewHull}=window.Rocket3D;
   const obstacleSprites=new ObstacleSprites(()=>document.createElement('canvas'));
   const scene3D=new Scene3D(ctx,obstacleSprites);
-  let view='angle',cameraBlend=0;
+  let view='angle';
   try{const saved=localStorage.getItem('rocketRunView');if(VIEWS.some(v=>v.id===saved))view=saved;}catch(_){}
-  cameraBlend=view==='chase'?1:0;
+  const viewWeights=id=>({angle:id==='angle'?1:0,chase:id==='chase'?1:0,classic:id==='classic'?1:0});
+  let cameraWeights=viewWeights(view),cameraFlight=null;
   const transitionCanvas = document.createElement('canvas');
   const transitionContext = transitionCanvas.getContext('2d');
   const transitionArt = new Art(transitionContext);
   const transition3D = new Scene3D(transitionContext,obstacleSprites);
+  const cameraCanvas=document.createElement('canvas'),cameraContext=cameraCanvas.getContext('2d');
+  const cameraArt=new Art(cameraContext);
   const sceneButtons = ['moonButton','marsButton','areaButton','lockheedButton','spacexButton'];
   const currentSceneIndex = () => game.transitionProgress >= .5 ? game.transition.to : game.sectorIndex;
   const currentScene = () => scenes[state === 'menu' ? selectedScene : currentSceneIndex()];
   const activeJumpInputs = new Set();
-  let touchTap=null,lastTouchTap=null;
-  const clearTapGesture=()=>{touchTap=null;lastTouchTap=null;};
   try { best = Math.max(0, Math.floor(Number(localStorage.getItem('trumpElonHighScore')) || 0)); } catch (_) {}
   if (!Number.isFinite(best)) best = 0;
   const pad = value => String(value).padStart(5, '0');
@@ -79,7 +80,6 @@
     } catch (_) { /* Sound is optional; unsupported audio must not stop the run. */ }
   }
   function setState(next) {
-    clearTapGesture();
     shownHUD = '';
     state = next; $('gameContainer').className = 'game-shell is-' + state;
     $('startScreen').hidden = state !== 'menu'; $('crewLabel').hidden = state !== 'menu';
@@ -124,6 +124,7 @@
     $('routeProgress').setAttribute('aria-valuetext', arriving ? 'Arriving at ' + destination + '. ' + (phase === 'clearing' ? 'Clear the last obstacles.' : 'Airspace clear.') : (routeLength - routePoint) + ' metres to ' + destination);
   }
   function start() {
+    cameraWeights=viewWeights(view);cameraFlight=null;
     game.start(selectedScene); activeJumpInputs.clear(); particles = []; scorePopups = []; particleClock = 0;
     accumulator = 0; lastTime = null; sceneDistance = 0; milestoneUntil = 0;
     $('milestone').textContent = ''; setState('playing'); updateHUD(); tone('start'); stage.focus({preventScroll:true});
@@ -137,6 +138,7 @@
     }
   }
   function menu() {
+    cameraWeights=viewWeights(view);cameraFlight=null;
     game.reset(); activeJumpInputs.clear(); accumulator = 0; particles = []; scorePopups = [];
     $('milestone').textContent = ''; setState('menu'); updateHUD(); $('startButton').focus({preventScroll:true});
   }
@@ -181,9 +183,10 @@
     for(const id of ['viewButton','menuViewButton','pauseViewButton'])$(id).setAttribute('aria-label','Current view: '+label+'. Change camera perspective.');
   }
   function changeView(){
-    clearTapGesture();
     view=VIEWS[(VIEWS.findIndex(v=>v.id===view)+1)%VIEWS.length].id;
-    if(reducedMotion||state!=='playing'||view==='classic')cameraBlend=view==='chase'?1:0;
+    const target=viewWeights(view);
+    if(reducedMotion||state!=='playing'){cameraWeights=target;cameraFlight=null;}
+    else cameraFlight={from:{...cameraWeights},target,elapsed:0};
     try{localStorage.setItem('rocketRunView',view);}catch(_){}
     showView();
     if(state==='playing')stage.focus({preventScroll:true});
@@ -227,39 +230,21 @@
   });
   window.addEventListener('keyup', event => { if (['Space','ArrowUp','KeyW'].includes(event.code)) release(event.code); });
   stage.addEventListener('pointerdown', event => {
-    if (event.target.closest('button') || state !== 'playing' || (event.pointerType === 'mouse' && event.button !== 0)) {clearTapGesture();return;}
+    if (event.target.closest('button') || state !== 'playing' || (event.pointerType === 'mouse' && event.button !== 0)) return;
     event.preventDefault(); stage.setPointerCapture(event.pointerId);
-    const touch=event.pointerType==='touch'||event.pointerType==='pen';
-    if(touch&&event.isPrimary!==false){
-      const now=performance.now(),x=event.clientX??0,y=event.clientY??0;
-      const doubleTap=lastTouchTap&&lastTouchTap.type===event.pointerType&&now-lastTouchTap.start<=260&&Math.hypot(x-lastTouchTap.x,y-lastTouchTap.y)<=36;
-      lastTouchTap=null;
-      if(doubleTap){changeView();return;}
-      touchTap={id:event.pointerId,type:event.pointerType,start:now,x,y,moved:false};
-    }else clearTapGesture();
-    // The first tap jumps immediately; recognizing a second tap adds no input lag.
     jump('pointer-' + event.pointerId);
   });
-  stage.addEventListener('pointermove',event=>{
-    if(touchTap?.id===event.pointerId&&Math.hypot((event.clientX??0)-touchTap.x,(event.clientY??0)-touchTap.y)>24)touchTap.moved=true;
-  });
-  const releasePointer = (event,cancelled=false) => {
-    release('pointer-' + event.pointerId);
-    if(touchTap?.id!==event.pointerId)return;
-    const tap=touchTap;touchTap=null;
-    const close=Math.hypot((event.clientX??0)-tap.x,(event.clientY??0)-tap.y)<=24;
-    lastTouchTap=!cancelled&&!tap.moved&&close&&state==='playing'&&performance.now()-tap.start<=180?tap:null;
-  };
-  window.addEventListener('pointerup',event=>releasePointer(event));
-  window.addEventListener('pointercancel',event=>releasePointer(event,true));
-  stage.addEventListener('lostpointercapture',event=>releasePointer(event,true));
+  const releasePointer=event=>release('pointer-'+event.pointerId);
+  window.addEventListener('pointerup',releasePointer);
+  window.addEventListener('pointercancel',releasePointer);
+  stage.addEventListener('lostpointercapture',releasePointer);
   window.addEventListener('blur', () => { if (state === 'playing') pause(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') pause(); });
 
-  function background(viewWidth,viewHeight,ground) {
+  function background(viewWidth,viewHeight,ground,c=ctx,painter=art) {
     const scene = {index:state === 'menu' ? selectedScene : game.sectorIndex,
       width:viewWidth,height:viewHeight,ground,distance:sceneDistance,time:sceneTime,reduced:reducedMotion};
-    art.background(scene);
+    painter.background(scene);
     if (state === 'menu' || game.transition?.phase !== 'crossfade') return;
     // Composite a complete scene: individual art helpers manage their own opacity.
     if (transitionCanvas.width !== canvas.width || transitionCanvas.height !== canvas.height) {
@@ -268,14 +253,30 @@
     transitionContext.setTransform(canvas.width/viewWidth,0,0,canvas.height/viewHeight,0,0);
     transitionArt.background({...scene,index:game.transition.to});
     const t = game.transitionProgress;
-    ctx.save();ctx.globalAlpha = t*t*(3-2*t);
-    ctx.drawImage(transitionCanvas,0,0,viewWidth,viewHeight);ctx.restore();
+    c.save();c.globalAlpha = t*t*(3-2*t);
+    c.drawImage(transitionCanvas,0,0,viewWidth,viewHeight);c.restore();
   }
-  function drawCrew(x,bottom,w,bob=0) {
-    if(!ready){ art.reserveCrew(x,bottom+bob,w); return; }
+  function drawCrew(x,bottom,w,bob=0,c=ctx,painter=art) {
+    if(!ready){ painter.reserveCrew(x,bottom+bob,w); return; }
     const h=w*crew.naturalHeight/crew.naturalWidth;
-    ctx.imageSmoothingEnabled=false;
-    ctx.drawImage(crew,Math.round(x),Math.round(bottom-h+bob),w,h);
+    c.imageSmoothingEnabled=false;
+    c.drawImage(crew,Math.round(x),Math.round(bottom-h+bob),w,h);
+  }
+  function drawClassic(viewWidth,viewHeight,c=ctx,painter=art) {
+    const ground=viewHeight-85;
+    background(viewWidth,viewHeight,ground,c,painter);
+    c.save();c.translate(0,ground-RULES.ground);
+    for(const obstacle of game.obstacles)painter.obstacle(obstacle,sceneTime);
+    const p=game.player,altitude=RULES.ground-p.y;
+    c.globalAlpha=Math.max(.1,.25-altitude*.0008);c.fillStyle='#596447';c.beginPath();c.ellipse(p.x+108,RULES.ground-1,Math.max(24,75-altitude*.15),4,0,0,Math.PI*2);c.fill();c.globalAlpha=1;
+    for(const part of particles){c.globalAlpha=Math.min(1,part.life*2);c.fillStyle=part.color;c.fillRect(part.x,part.y,part.size,part.size);}
+    c.globalAlpha=1;
+    drawCrew(p.x,p.y-4,RULES.playerWidth,(p.airborne||reducedMotion||state!=='playing')?0:Math.sin(sceneTime*13)*1.2,c,painter);
+    for(const popup of scorePopups){
+      c.globalAlpha=Math.min(1,popup.life*2);c.fillStyle=currentScene().id==='area51'?'#d9eab2':'#a64928';
+      c.font='bold 16px "Courier New", monospace';c.textAlign='center';c.fillText(popup.text,popup.x,popup.y);
+    }
+    c.globalAlpha=1;c.restore();
   }
   function draw() {
     ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -296,12 +297,15 @@
       for(let i=0;i<3;i++){const x=rocketX-15-(i%2)*18;const y=rocketBottom-rocketWidth*.19-i*15;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-20-i*8,y);ctx.stroke();}
       return;
     }
-    if(view!=='classic'){
-      const viewWidth=Math.max(width<620?800:1200,width*390/height),scale=width/viewWidth;
-      const viewHeight=height/scale;
-      ctx.save();ctx.scale(scale,scale);
+    // Every view shares the same framing and simulation throughout the camera flight.
+    const viewWidth=Math.max(width<620?800:1200,width*390/height),scale=width/viewWidth;
+    const viewHeight=height/scale,side=cameraWeights.classic;
+    ctx.save();ctx.scale(scale,scale);
+    if(side<1){
+      const perspectiveWeight=cameraWeights.angle+cameraWeights.chase;
+      const blend=perspectiveWeight>0?cameraWeights.chase/perspectiveWeight:0;
       const scene={width:viewWidth,height:viewHeight,palette:scenes[game.sectorIndex],game,
-        distance:sceneDistance,time:sceneTime,blend:cameraBlend,reduced:reducedMotion,crewImage:crewTexture,crewHull};
+        distance:sceneDistance,time:sceneTime,blend,side,reduced:reducedMotion,crewImage:crewTexture,crewHull};
       scene3D.render(scene);
       if(game.transition?.phase==='crossfade'){
         if(transitionCanvas.width!==canvas.width||transitionCanvas.height!==canvas.height){transitionCanvas.width=canvas.width;transitionCanvas.height=canvas.height;}
@@ -313,34 +317,27 @@
       // Feedback follows the projected crew instead of remaining at the 2D coordinates.
       const marker=scene3D.camera.project([0,RULES.ground-game.player.y+135,0]);
       if(marker&&scorePopups.length){ctx.fillStyle=currentScene().id==='area51'?'#d9eab2':'#9c3f27';ctx.font='bold 17px "Courier New",monospace';ctx.textAlign='center';ctx.fillText(scorePopups.at(-1).text,...marker.point);}
-      ctx.restore();return;
     }
-    // Short landscape viewports must still show the full jump arc and both riders.
-    const viewWidth=Math.max(width<620?800:1200,width*390/height), scale=width/viewWidth;
-    const viewHeight=height/scale, ground=viewHeight-85;
-    ctx.save();ctx.scale(scale,scale);
-    background(viewWidth,viewHeight,ground);
-    ctx.save();ctx.translate(0,ground-RULES.ground);
-    for(const obstacle of game.obstacles) art.obstacle(obstacle,sceneTime);
-    const p=game.player;
-    const altitude=RULES.ground-p.y;
-    ctx.globalAlpha=Math.max(.1,.25-altitude*.0008);ctx.fillStyle='#596447';ctx.beginPath();ctx.ellipse(p.x+108,RULES.ground-1,Math.max(24,75-altitude*.15),4,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
-    for(const part of particles){ctx.globalAlpha=Math.min(1,part.life*2);ctx.fillStyle=part.color;ctx.fillRect(part.x,part.y,part.size,part.size);}
-    ctx.globalAlpha=1;
-    drawCrew(p.x,p.y-4,RULES.playerWidth,(p.airborne||reducedMotion||state!=='playing')?0:Math.sin(sceneTime*13)*1.2);
-    for(const popup of scorePopups){
-      ctx.globalAlpha=Math.min(1,popup.life*2);ctx.fillStyle=currentScene().id==='area51'?'#d9eab2':'#a64928';
-      ctx.font='bold 16px "Courier New", monospace';ctx.textAlign='center';ctx.fillText(popup.text,popup.x,popup.y);
+    if(side===1)drawClassic(viewWidth,viewHeight);
+    else if(side>.88){
+      // Finish the move side-on before dissolving to the original Classic scenery.
+      // Render it live so jumps, hazards and map fades never freeze during the blend.
+      if(cameraCanvas.width!==canvas.width||cameraCanvas.height!==canvas.height){cameraCanvas.width=canvas.width;cameraCanvas.height=canvas.height;}
+      cameraContext.setTransform(canvas.width/viewWidth,0,0,canvas.height/viewHeight,0,0);
+      drawClassic(viewWidth,viewHeight,cameraContext,cameraArt);
+      const t=(side-.88)/.12;ctx.globalAlpha=t*t*(3-2*t);
+      ctx.drawImage(cameraCanvas,0,0,viewWidth,viewHeight);ctx.globalAlpha=1;
     }
-    ctx.globalAlpha=1;
-    ctx.restore();ctx.restore();
+    ctx.restore();
   }
   function frame(timestamp) {
     const delta=lastTime===null?0:Math.min((timestamp-lastTime)/1000,.05);lastTime=timestamp;
     if(state!=='paused'){sceneTime+=delta;}
-    if(state==='playing'&&view!=='classic'){
-      const target=view==='chase'?1:0;
-      cameraBlend=reducedMotion?target:cameraBlend+(target-cameraBlend)*Math.min(1,delta*7);
+    if(state==='playing'&&cameraFlight){
+      cameraFlight.elapsed+=delta;
+      const t=Math.min(1,cameraFlight.elapsed),ease=t*t*t*(t*(t*6-15)+10);
+      for(const id of ['angle','chase','classic'])cameraWeights[id]=cameraFlight.from[id]+(cameraFlight.target[id]-cameraFlight.from[id])*ease;
+      if(t===1){cameraWeights=cameraFlight.target;cameraFlight=null;}
     }
     if(state==='menu'&&!reducedMotion)sceneDistance+=delta*28;
     if(state==='playing'){
