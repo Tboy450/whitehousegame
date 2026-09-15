@@ -10,25 +10,31 @@ $iconDirectory = Join-Path $localData 'RocketRun'
 # A content-specific name prevents Explorer from reusing an obsolete cached icon.
 $iconVersion = (Get-FileHash -LiteralPath $iconSource -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
 $iconPath = Join-Path $iconDirectory ('rocket-run-' + $iconVersion + '.ico')
-$shortcutPath = Join-Path $desktop 'Rocket Run.lnk'
+$shortcutPath = Join-Path $desktop 'Rocket Run - White House Arcade.url'
 if (Test-Path -LiteralPath $shortcutPath) {
-    $existing = $shell.CreateShortcut($shortcutPath)
-    if ($existing.Arguments -ne $url) {
-        $shortcutPath = Join-Path $desktop ('Rocket Run - White House Arcade ' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.lnk')
+    $existingUrl = Get-Content -LiteralPath $shortcutPath -Raw
+    if ($existingUrl -notmatch ('(?m)^URL=' + [regex]::Escape($url) + '\r?$')) {
+        $shortcutPath = Join-Path $desktop ('Rocket Run - White House Arcade ' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.url')
     }
 }
 [System.IO.Directory]::CreateDirectory($iconDirectory) | Out-Null
 Copy-Item -LiteralPath $iconSource -Destination $iconPath -Force
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = Join-Path $env:SystemRoot 'explorer.exe'
-$shortcut.Arguments = $url
-$shortcut.IconLocation = $iconPath + ',0'
-$shortcut.Description = 'Rocket Run - White House arcade. Play the public game.'
-$shortcut.WorkingDirectory = $iconDirectory
-$shortcut.Save()
-$saved = $shell.CreateShortcut($shortcutPath)
-if ($saved.Arguments -ne $url -or $saved.IconLocation -ne ($iconPath + ',0')) { throw 'The saved shortcut did not match the intended game link and icon.' }
-if (-not (Test-Path -LiteralPath $saved.TargetPath -PathType Leaf)) { throw 'The browser launcher is unavailable.' }
+# A native Internet Shortcut opens the default browser directly. A new desktop
+# filename avoids the obsolete Explorer-launcher thumbnail cache entry.
+$shortcutText = "[InternetShortcut]`r`nURL=$url`r`nIconFile=$iconPath`r`nIconIndex=0`r`n"
+[System.IO.File]::WriteAllText($shortcutPath, $shortcutText, [System.Text.Encoding]::Unicode)
+$saved = Get-Content -LiteralPath $shortcutPath -Raw
+if ($saved -ne $shortcutText) { throw 'The saved website shortcut did not match the intended game link and icon.' }
+# Keep the former game launcher recoverable; leave unrelated shortcuts alone.
+$oldPath = Join-Path $desktop 'Rocket Run.lnk'
+if (Test-Path -LiteralPath $oldPath) {
+    $old = $shell.CreateShortcut($oldPath)
+    if ($old.Arguments -eq $url -and [System.IO.Path]::GetFileName($old.TargetPath) -eq 'explorer.exe') {
+        $backupPath = Join-Path $iconDirectory ('Rocket Run previous launcher ' + [Guid]::NewGuid().ToString('N') + '.lnk')
+        Move-Item -LiteralPath $oldPath -Destination $backupPath
+        Write-Output "Previous launcher backed up: $backupPath"
+    }
+}
 if (-not ('RocketRunShellRefresh' -as [type])) {
     Add-Type @'
 using System;
@@ -40,8 +46,14 @@ public static class RocketRunShellRefresh {
 '@
 }
 # Refresh just this shortcut and its desktop folder; keep other apps and caches intact.
+[RocketRunShellRefresh]::SHChangeNotify(0x00000002, 0x00001005, $shortcutPath, [IntPtr]::Zero)
 [RocketRunShellRefresh]::SHChangeNotify(0x00002000, 0x00001005, $shortcutPath, [IntPtr]::Zero)
 [RocketRunShellRefresh]::SHChangeNotify(0x00001000, 0x00001005, $desktop, [IntPtr]::Zero)
+# Ask the shell to invalidate cached icon associations as well: changing just
+# the file entry can leave a blank desktop thumbnail even when extraction works.
+[RocketRunShellRefresh]::SHChangeNotify(0x08000000, 0, $null, [IntPtr]::Zero)
+$iconRefresh = Join-Path $env:SystemRoot 'System32\ie4uinit.exe'
+if (Test-Path -LiteralPath $iconRefresh -PathType Leaf) { & $iconRefresh -show }
 Write-Output "Desktop shortcut: $shortcutPath"
 Write-Output "Icon: $iconPath"
-Write-Output "Opens: $($saved.Arguments)"
+Write-Output "Opens: $url"

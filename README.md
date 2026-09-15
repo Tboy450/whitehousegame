@@ -32,7 +32,7 @@ The renderer projects actual 3D coordinates onto Canvas 2D, clips the near plane
 
 ## Desktop shortcut
 
-On Windows, run `scripts/install-desktop-shortcut.ps1` to add **Rocket Run** to your desktop. It opens the public game in your default browser and uses the included White House rocket badge. Logo files and the generation prompt are in `assets/desktop/README.md`.
+On Windows, run `scripts/install-desktop-shortcut.ps1` to add **Rocket Run - White House Arcade** to your desktop. This native website shortcut opens the public game in your default browser and uses the included White House rocket badge. The installer backs up the previous matching Explorer launcher and preserves unrelated shortcuts. Logo files and the generation prompt are in `assets/desktop/README.md`.
 
 ## Five selectable sectors
 
